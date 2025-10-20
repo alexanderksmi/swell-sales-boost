@@ -92,8 +92,14 @@ const Index = () => {
           </p>
 
           <div className="flex flex-wrap gap-4 justify-center">
-            <Button size="lg" className="bg-gradient-to-r from-primary to-primary-glow hover:opacity-90 transition-opacity shadow-lg">
-              Kommer snart: HubSpot Login
+            <Button 
+              size="lg" 
+              className="bg-gradient-to-r from-primary to-primary-glow hover:opacity-90 transition-opacity shadow-lg"
+              onClick={() => {
+                window.location.href = 'https://ffbdcvvxiklzgfwrhbta.supabase.co/functions/v1/hubspot-auth/start';
+              }}
+            >
+              Connect with HubSpot
             </Button>
             <Button size="lg" variant="outline">
               Les dokumentasjon
@@ -167,8 +173,8 @@ const Index = () => {
                 </h4>
                 <ul className="space-y-1 text-sm text-muted-foreground ml-4">
                   <li>✓ Health check endpoint</li>
-                  <li>✓ HubSpot auth struktur</li>
-                  <li>○ HubSpot OAuth (Milestone 1)</li>
+                  <li>✓ HubSpot OAuth komplett</li>
+                  <li>✓ Token-håndtering</li>
                 </ul>
               </div>
             </div>
