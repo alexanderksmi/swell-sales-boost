@@ -7,6 +7,7 @@ const corsHeaders = {
 
 const HUBSPOT_CLIENT_ID = Deno.env.get('HUBSPOT_CLIENT_ID');
 const HUBSPOT_CLIENT_SECRET = Deno.env.get('HUBSPOT_CLIENT_SECRET');
+const HUBSPOT_REDIRECT_URI = Deno.env.get('HUBSPOT_REDIRECT_URI');
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 
@@ -33,11 +34,9 @@ Deno.serve(async (req) => {
   try {
     // Route: /start - Initiate OAuth flow
     if (path.includes('/start')) {
-      const redirectUri = `${url.origin}${url.pathname.replace('/start', '/callback')}`;
-      
       const hubspotAuthUrl = new URL('https://app.hubspot.com/oauth/authorize');
       hubspotAuthUrl.searchParams.set('client_id', HUBSPOT_CLIENT_ID!);
-      hubspotAuthUrl.searchParams.set('redirect_uri', redirectUri);
+      hubspotAuthUrl.searchParams.set('redirect_uri', HUBSPOT_REDIRECT_URI!);
       hubspotAuthUrl.searchParams.set('scope', SCOPES);
       
       console.log('Redirecting to HubSpot OAuth:', hubspotAuthUrl.toString());
@@ -62,7 +61,6 @@ Deno.serve(async (req) => {
       console.log('Received OAuth code, exchanging for tokens');
 
       // Exchange code for access token
-      const redirectUri = `${url.origin}${url.pathname}`;
       const tokenResponse = await fetch('https://api.hubapi.com/oauth/v1/token', {
         method: 'POST',
         headers: {
@@ -72,7 +70,7 @@ Deno.serve(async (req) => {
           grant_type: 'authorization_code',
           client_id: HUBSPOT_CLIENT_ID!,
           client_secret: HUBSPOT_CLIENT_SECRET!,
-          redirect_uri: redirectUri,
+          redirect_uri: HUBSPOT_REDIRECT_URI!,
           code: code,
         }).toString(),
       });
