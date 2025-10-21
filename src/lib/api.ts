@@ -36,3 +36,21 @@ export async function authenticateWithHubSpot(code: string) {
     throw error;
   }
 }
+
+/**
+ * Check current session validity
+ * Returns user and tenant data if session is valid
+ */
+export async function checkSession() {
+  try {
+    const { data, error } = await supabase.functions.invoke('api-session-me', {
+      method: 'GET',
+    });
+
+    if (error) throw error;
+    return data;
+  } catch (error) {
+    console.error('Session check failed:', error);
+    throw error;
+  }
+}

@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { checkSession } from "@/lib/api";
 
 const EDGE_ORIGIN = 'https://ffbdcvvxiklzgfwrhbta.supabase.co';
 
@@ -15,6 +16,26 @@ const Index = () => {
   const [authError, setAuthError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [popup, setPopup] = useState<Window | null>(null);
+  const [checkingSession, setCheckingSession] = useState(true);
+
+  // Check if user is already logged in
+  useEffect(() => {
+    const checkExistingSession = async () => {
+      try {
+        const sessionData = await checkSession();
+        if (sessionData.authenticated) {
+          console.log('[Index] Existing session found, redirecting to leaderboard');
+          navigate('/app/leaderboard');
+        }
+      } catch (error) {
+        console.log('[Index] No existing session');
+      } finally {
+        setCheckingSession(false);
+      }
+    };
+
+    checkExistingSession();
+  }, [navigate]);
 
   const handleSuccess = () => {
     setIsLoggingIn(false);
@@ -218,6 +239,18 @@ const Index = () => {
       description: "Tilpass poengregler og innstillinger",
     },
   ];
+
+  // Show loading while checking session
+  if (checkingSession) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-background to-muted">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          <p className="text-muted-foreground">Sjekker sesjon...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted">

@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Trophy, LogOut, Loader2, TrendingUp, DollarSign } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { checkSession } from "@/lib/api";
 import {
   Select,
   SelectContent,
@@ -44,27 +45,25 @@ const Leaderboard = () => {
   useEffect(() => {
     const fetchUserData = async () => {
       try {
-        // Fetch current user to get tenant_id
-        const { data: userData, error: userError } = await supabase
-          .from('users')
-          .select('id, tenant_id, email')
-          .limit(1)
-          .maybeSingle();
+        // Check session validity via edge function
+        const sessionData = await checkSession();
 
-        if (userError || !userData) {
-          toast.error('Kunne ikke hente brukerdata');
+        if (!sessionData.authenticated || !sessionData.user) {
+          console.log('[Leaderboard] No valid session, redirecting to home');
+          toast.error('Vennligst logg inn på nytt');
           navigate('/');
           return;
         }
 
-        setUserId(userData.id);
-        setTenantId(userData.tenant_id);
+        console.log('[Leaderboard] Valid session found:', sessionData.user);
+        setUserId(sessionData.user.id);
+        setTenantId(sessionData.tenant.id);
 
         // Fetch leaderboard data
         const { data: leaderboardResponse, error: leaderboardError } = await supabase.functions.invoke(
           'api-leaderboard',
           {
-            body: { tenant_id: userData.tenant_id },
+            body: { tenant_id: sessionData.tenant.id },
           }
         );
 
@@ -80,8 +79,8 @@ const Leaderboard = () => {
           'api-me-summary',
           {
             body: { 
-              tenant_id: userData.tenant_id,
-              user_id: userData.id,
+              tenant_id: sessionData.tenant.id,
+              user_id: sessionData.user.id,
             },
           }
         );
