@@ -52,17 +52,15 @@ const Index = () => {
     }, 500);
   };
 
-  // Listen for postMessage from popup with session_key
+  // Always-active listener for postMessage from popup
   useEffect(() => {
-    let messageReceived = false;
-    let pollTimeout: NodeJS.Timeout | null = null;
-
+    console.log('[Frontend] Setting up permanent postMessage listener...');
+    
     const handleMessage = (event: MessageEvent) => {
+      console.log('[Frontend] Received message:', event.data);
+      
       // Security: validate message structure
       if (event.data?.type === 'hubspot-auth-complete' && event.data?.sessionKey) {
-        messageReceived = true;
-        if (pollTimeout) clearTimeout(pollTimeout);
-        
         const sessionKey = event.data.sessionKey;
         console.log('[Frontend] Received session_key from popup, exchanging for token');
         
@@ -93,7 +91,7 @@ const Index = () => {
                 description: "Velkommen til Swell!",
               });
               
-              // Navigate to leaderboard
+              setIsLoggingIn(false);
               navigate('/app/leaderboard');
             }
           })
@@ -107,9 +105,6 @@ const Index = () => {
             setIsLoggingIn(false);
           });
       } else if (event.data?.type === 'hubspot-auth-error') {
-        messageReceived = true;
-        if (pollTimeout) clearTimeout(pollTimeout);
-        
         console.error('[Frontend] Auth error from popup:', event.data.error);
         setAuthError(event.data.error);
         setIsLoggingIn(false);
@@ -121,38 +116,45 @@ const Index = () => {
       }
     };
 
-    // Fallback: Poll for session if postMessage is not received within 3 seconds
-    if (isLoggingIn) {
-      pollTimeout = setTimeout(async () => {
-        if (!messageReceived) {
-          console.log('[Frontend] No postMessage received, polling for session...');
-          try {
-            const sessionData = await checkSession();
-            if (sessionData.authenticated) {
-              console.log('[Frontend] Session found via polling, redirecting');
-              toast({
-                title: "Innlogging vellykket",
-                description: "Velkommen til Swell!",
-              });
-              navigate('/app/leaderboard');
-            } else {
-              console.log('[Frontend] No session found via polling');
-              setIsLoggingIn(false);
-            }
-          } catch (error) {
-            console.error('[Frontend] Polling failed:', error);
-            setIsLoggingIn(false);
-          }
-        }
-      }, 3000);
-    }
-
     window.addEventListener('message', handleMessage);
     return () => {
+      console.log('[Frontend] Cleaning up postMessage listener');
       window.removeEventListener('message', handleMessage);
-      if (pollTimeout) clearTimeout(pollTimeout);
     };
-  }, [navigate, toast, isLoggingIn]);
+  }, [navigate, toast]);
+
+  // Fallback polling - only active during login
+  useEffect(() => {
+    if (!isLoggingIn) return;
+    
+    console.log('[Frontend] Starting fallback polling timeout (3s)...');
+    const pollTimeout = setTimeout(async () => {
+      console.log('[Frontend] Fallback: polling for session after 3s timeout...');
+      try {
+        const sessionData = await checkSession();
+        if (sessionData.authenticated) {
+          console.log('[Frontend] Session found via polling, redirecting');
+          toast({
+            title: "Innlogging vellykket",
+            description: "Velkommen til Swell!",
+          });
+          setIsLoggingIn(false);
+          navigate('/app/leaderboard');
+        } else {
+          console.log('[Frontend] No session found via polling');
+          setIsLoggingIn(false);
+        }
+      } catch (error) {
+        console.error('[Frontend] Polling failed:', error);
+        setIsLoggingIn(false);
+      }
+    }, 3000);
+
+    return () => {
+      console.log('[Frontend] Cleaning up polling timeout');
+      clearTimeout(pollTimeout);
+    };
+  }, [isLoggingIn, navigate, toast]);
 
   const handleHubSpotLogin = () => {
     setAuthError(null);
