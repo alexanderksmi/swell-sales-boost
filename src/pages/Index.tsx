@@ -2,22 +2,16 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Trophy, Zap, Target, TrendingUp, Users, Settings, AlertCircle, Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { checkSession } from "@/lib/api";
 
 const EDGE_ORIGIN = 'https://ffbdcvvxiklzgfwrhbta.supabase.co';
 
 const Index = () => {
   const navigate = useNavigate();
-  const { toast } = useToast();
-  const [authError, setAuthError] = useState<string | null>(null);
-  const [isLoggingIn, setIsLoggingIn] = useState(false);
-  const [popup, setPopup] = useState<Window | null>(null);
+  const popupRef = useRef<Window | null>(null);
   const [checkingSession, setCheckingSession] = useState(true);
-  const [timeoutId, setTimeoutId] = useState<number | null>(null);
 
   // Check if user is already logged in
   useEffect(() => {
@@ -36,136 +30,32 @@ const Index = () => {
 
   // Global message listener for OAuth callback
   useEffect(() => {
-    const handleMessage = (event: MessageEvent) => {
-      console.log('[Frontend] Received message:', event.data);
-      
-      // Only accept messages from EDGE_ORIGIN with source === 'hubspot'
-      if (event.origin !== EDGE_ORIGIN) {
-        console.log('[Frontend] Ignoring message from wrong origin:', event.origin);
-        return;
+    function handleMessage(e: MessageEvent) {
+      console.debug("OAuth postMessage", e.origin, e.data);
+      if (e.origin !== "https://ffbdcvvxiklzgfwrhbta.supabase.co") return;
+      if (e.data?.source !== "hubspot") return;
+      if (e.data?.type === "hubspot-auth-success") {
+        if (e.data?.token) localStorage.setItem("swell_token", e.data.token);
+        try { popupRef.current?.close(); } catch {}
+        navigate("/app/leaderboard");
+      } else if (e.data?.type === "hubspot-auth-error") {
+        try { popupRef.current?.close(); } catch {}
+        alert("Innlogging feilet: " + (e.data?.error || ""));
       }
-      
-      if (event.data?.source !== 'hubspot') {
-        console.log('[Frontend] Ignoring message without hubspot source');
-        return;
-      }
-
-      // Clear timeout
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-        setTimeoutId(null);
-      }
-
-      if (event.data.type === 'hubspot-auth-success') {
-        console.log('[Frontend] Auth success received');
-        
-        // Store token
-        localStorage.setItem('swell_token', event.data.token);
-        
-        // Close popup
-        if (popup && !popup.closed) {
-          try {
-            popup.close();
-          } catch (e) {
-            console.warn('[Frontend] Could not close popup:', e);
-          }
-        }
-        
-        setIsLoggingIn(false);
-        setAuthError(null);
-        
-        toast({
-          title: "Innlogging vellykket",
-          description: "Velkommen til Swell!",
-        });
-        
-        // Navigate to leaderboard
-        navigate('/app/leaderboard');
-      } else if (event.data.type === 'hubspot-auth-error') {
-        console.error('[Frontend] Auth error received:', event.data.error);
-        
-        // Close popup
-        if (popup && !popup.closed) {
-          try {
-            popup.close();
-          } catch (e) {
-            console.warn('[Frontend] Could not close popup:', e);
-          }
-        }
-        
-        setAuthError(event.data.error || 'Innlogging feilet');
-        setIsLoggingIn(false);
-        
-        toast({
-          title: "Innlogging feilet",
-          description: event.data.error || 'En ukjent feil oppstod',
-          variant: "destructive",
-        });
-      }
-    };
-
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, [popup, timeoutId, navigate, toast]);
+    }
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [navigate]);
 
   const handleHubSpotLogin = () => {
-    setAuthError(null);
-    setIsLoggingIn(true);
-    
-    const width = 600;
-    const height = 720;
-    const left = window.screen.width / 2 - width / 2;
-    const top = window.screen.height / 2 - height / 2;
-    
-    const startUrl = `${EDGE_ORIGIN}/functions/v1/hubspot-auth/start`;
-    
-    console.log('[Frontend] Opening OAuth popup');
-    
-    const newPopup = window.open(
-      startUrl,
-      'hubspot-oauth',
-      `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
+    popupRef.current = window.open(
+      "https://ffbdcvvxiklzgfwrhbta.supabase.co/functions/v1/hubspot-auth/start",
+      "hubspot-oauth",
+      "width=600,height=720"
     );
-
-    if (!newPopup) {
-      // Popup was blocked - fallback to full redirect
-      console.log('[Frontend] Popup blocked, falling back to redirect');
-      setAuthError("Popup ble blokkert. Omdirigerer...");
-      toast({
-        title: "Popup blokkert",
-        description: "Omdirigerer til innlogging i samme vindu...",
-      });
-      
-      setTimeout(() => {
-        window.location.href = startUrl;
-      }, 1000);
-      return;
+    if (!popupRef.current) {
+      window.location.href = "https://ffbdcvvxiklzgfwrhbta.supabase.co/functions/v1/hubspot-auth/start";
     }
-
-    setPopup(newPopup);
-
-    // Set 120 second timeout
-    const timeout = setTimeout(() => {
-      console.log('[Frontend] OAuth timeout reached');
-      
-      if (newPopup && !newPopup.closed) {
-        try {
-          newPopup.close();
-        } catch (e) {
-          console.warn('[Frontend] Could not close popup:', e);
-        }
-      }
-      
-      setIsLoggingIn(false);
-      setAuthError('Innlogging tok for lang tid. Prøv igjen.');
-      toast({
-        title: "Timeout",
-        description: "Innlogging tok for lang tid. Prøv igjen.",
-        variant: "destructive",
-      });
-    }, 120000); // 120 seconds
-
-    setTimeoutId(timeout as unknown as number);
   };
   const features = [
     {
@@ -266,37 +156,13 @@ const Index = () => {
             engasjerende konkurranse med sanntids leaderboards og poengberegning.
           </p>
 
-          {authError && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="max-w-md mx-auto mb-6"
-            >
-              <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertTitle>Innlogging feilet</AlertTitle>
-                <AlertDescription>{authError}</AlertDescription>
-              </Alert>
-            </motion.div>
-          )}
-
           <div className="flex flex-wrap gap-4 justify-center">
             <Button 
               size="lg" 
               className="bg-gradient-to-r from-primary to-primary-glow hover:opacity-90 transition-opacity shadow-lg"
               onClick={handleHubSpotLogin}
-              disabled={isLoggingIn}
             >
-              {isLoggingIn ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Logger inn...
-                </>
-              ) : authError ? (
-                'Prøv igjen'
-              ) : (
-                'Logg inn med HubSpot'
-              )}
+              Logg inn med HubSpot
             </Button>
             <Button size="lg" variant="outline">
               Les dokumentasjon
