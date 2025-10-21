@@ -311,15 +311,74 @@ Deno.serve(async (req) => {
         );
       }
 
-      console.log('Session saved, redirecting to frontend with session_key');
+      console.log('Session saved, sending postMessage to parent window');
 
-      // Redirect popup to frontend with session_key
-      return new Response(null, {
-        status: 302,
+      // Return minimal HTML that sends postMessage to opener and closes
+      const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Authentication Successful</title>
+          <style>
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              min-height: 100vh;
+              margin: 0;
+              background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+              color: white;
+            }
+            .message {
+              text-align: center;
+              padding: 2rem;
+            }
+            .spinner {
+              width: 40px;
+              height: 40px;
+              border: 4px solid rgba(255,255,255,0.3);
+              border-top-color: white;
+              border-radius: 50%;
+              animation: spin 1s linear infinite;
+              margin: 0 auto 1rem;
+            }
+            @keyframes spin {
+              to { transform: rotate(360deg); }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="message">
+            <div class="spinner"></div>
+            <h2>Authentication Successful!</h2>
+            <p>Closing window...</p>
+          </div>
+          <script>
+            if (window.opener) {
+              window.opener.postMessage({ 
+                type: 'hubspot-auth-success', 
+                source: 'hubspot',
+                token: '${sessionToken}',
+                tenantId: '${tenant.id}',
+                userId: '${user.id}'
+              }, window.opener.location.origin);
+              window.close();
+            } else {
+              // Fallback if no opener
+              window.location.href = '${frontendUrl || Deno.env.get('PUBLIC_APP_URL')}/?session_key=${sessionKey}';
+            }
+          </script>
+        </body>
+        </html>
+      `;
+
+      return new Response(html, {
+        status: 200,
         headers: {
           ...corsHeaders,
-          'Location': `${frontendUrl}/?session_key=${sessionKey}`
-        }
+          'Content-Type': 'text/html',
+        },
       });
     }
 
@@ -347,8 +406,28 @@ Deno.serve(async (req) => {
       <html>
       <head>
         <title>Authentication Error</title>
+        <style>
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+          }
+          .error {
+            text-align: center;
+            padding: 2rem;
+          }
+        </style>
       </head>
       <body>
+        <div class="error">
+          <h2>Authentication Error</h2>
+          <p>Closing window...</p>
+        </div>
         <script>
           if (window.opener && window.opener.location) {
             window.opener.postMessage({ 
@@ -358,10 +437,10 @@ Deno.serve(async (req) => {
             }, window.opener.location.origin);
             window.close();
           } else {
-            document.body.innerHTML = '<p>Error: ${errorMessage.replace(/'/g, "\\'")}</p>';
+            // Fallback if no opener
+            window.location.href = '${Deno.env.get('PUBLIC_APP_URL')}/?error=${encodeURIComponent(errorMessage)}';
           }
         </script>
-        <p>An error occurred during authentication...</p>
       </body>
       </html>
     `;
