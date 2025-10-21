@@ -17,112 +17,109 @@ const Index = () => {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [popup, setPopup] = useState<Window | null>(null);
   const [checkingSession, setCheckingSession] = useState(true);
+  const [timeoutId, setTimeoutId] = useState<number | null>(null);
 
   // Check if user is already logged in
   useEffect(() => {
     const checkExistingSession = async () => {
-      try {
-        const sessionData = await checkSession();
-        if (sessionData.authenticated) {
-          console.log('[Index] Existing session found, redirecting to leaderboard');
-          navigate('/app/leaderboard');
-        }
-      } catch (error) {
-        console.log('[Index] No existing session');
-      } finally {
-        setCheckingSession(false);
+      const existingToken = localStorage.getItem('swell_token');
+      if (existingToken) {
+        console.log('[Index] Existing token found, redirecting to leaderboard');
+        navigate('/app/leaderboard');
+        return;
       }
+      setCheckingSession(false);
     };
 
     checkExistingSession();
   }, [navigate]);
 
-  const handleSuccess = () => {
-    setIsLoggingIn(false);
-    setAuthError(null);
-    if (popup && !popup.closed) {
-      popup.close();
-    }
-    toast({
-      title: "Innlogging vellykket",
-      description: "Du blir omdirigert til leaderboard...",
-    });
-    setTimeout(() => {
-      navigate('/app/leaderboard');
-    }, 500);
-  };
-
-  // Check for session_key in URL on mount
+  // Global message listener for OAuth callback
   useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const sessionKey = urlParams.get('session_key');
-    
-    if (sessionKey) {
-      console.log('[Frontend] Found session_key in URL, exchanging for token');
-      setIsLoggingIn(true);
+    const handleMessage = (event: MessageEvent) => {
+      console.log('[Frontend] Received message:', event.data);
       
-      // Exchange session key for actual token
-      const exchangeUrl = new URL(`${EDGE_ORIGIN}/functions/v1/api-exchange-session`);
-      exchangeUrl.searchParams.set('session_key', sessionKey);
+      // Only accept messages from EDGE_ORIGIN with source === 'hubspot'
+      if (event.origin !== EDGE_ORIGIN) {
+        console.log('[Frontend] Ignoring message from wrong origin:', event.origin);
+        return;
+      }
       
-      fetch(exchangeUrl.toString())
-        .then(response => response.json())
-        .then(data => {
-          if (data.error) {
-            console.error('[Frontend] Failed to exchange session:', data.error);
-            toast({
-              title: "Innlogging feilet",
-              description: "Kunne ikke fullføre autentisering. Prøv igjen.",
-              variant: "destructive"
-            });
-            setIsLoggingIn(false);
-            window.history.replaceState({}, document.title, window.location.pathname);
-            return;
-          }
+      if (event.data?.source !== 'hubspot') {
+        console.log('[Frontend] Ignoring message without hubspot source');
+        return;
+      }
 
-          if (data.sessionToken) {
-            console.log('[Frontend] Session token received, storing in localStorage');
-            localStorage.setItem('swell_session', data.sessionToken);
-            
-            // Clean up URL
-            window.history.replaceState({}, document.title, window.location.pathname);
-            
-            toast({
-              title: "Innlogging vellykket",
-              description: "Velkommen til Swell!",
-            });
-            
-            // Navigate to leaderboard
-            navigate('/app/leaderboard');
+      // Clear timeout
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        setTimeoutId(null);
+      }
+
+      if (event.data.type === 'hubspot-auth-success') {
+        console.log('[Frontend] Auth success received');
+        
+        // Store token
+        localStorage.setItem('swell_token', event.data.token);
+        
+        // Close popup
+        if (popup && !popup.closed) {
+          try {
+            popup.close();
+          } catch (e) {
+            console.warn('[Frontend] Could not close popup:', e);
           }
-        })
-        .catch(error => {
-          console.error('[Frontend] Exchange request failed:', error);
-          toast({
-            title: "Innlogging feilet",
-            description: "Kunne ikke fullføre autentisering. Prøv igjen.",
-            variant: "destructive"
-          });
-          setIsLoggingIn(false);
-          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+        
+        setIsLoggingIn(false);
+        setAuthError(null);
+        
+        toast({
+          title: "Innlogging vellykket",
+          description: "Velkommen til Swell!",
         });
-    }
-  }, [navigate, toast]);
+        
+        // Navigate to leaderboard
+        navigate('/app/leaderboard');
+      } else if (event.data.type === 'hubspot-auth-error') {
+        console.error('[Frontend] Auth error received:', event.data.error);
+        
+        // Close popup
+        if (popup && !popup.closed) {
+          try {
+            popup.close();
+          } catch (e) {
+            console.warn('[Frontend] Could not close popup:', e);
+          }
+        }
+        
+        setAuthError(event.data.error || 'Innlogging feilet');
+        setIsLoggingIn(false);
+        
+        toast({
+          title: "Innlogging feilet",
+          description: event.data.error || 'En ukjent feil oppstod',
+          variant: "destructive",
+        });
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [popup, timeoutId, navigate, toast]);
 
   const handleHubSpotLogin = () => {
     setAuthError(null);
     setIsLoggingIn(true);
     
     const width = 600;
-    const height = 700;
+    const height = 720;
     const left = window.screen.width / 2 - width / 2;
     const top = window.screen.height / 2 - height / 2;
     
-    // Pass frontend URL to edge function so it knows where to redirect back
-    const frontendUrl = encodeURIComponent(window.location.origin);
-    const startUrl = `${EDGE_ORIGIN}/functions/v1/hubspot-auth/start?frontend_url=${frontendUrl}`;
+    const startUrl = `${EDGE_ORIGIN}/functions/v1/hubspot-auth/start`;
     
-    console.log('[Frontend] Opening OAuth popup with frontend URL:', window.location.origin);
+    console.log('[Frontend] Opening OAuth popup');
     
     const newPopup = window.open(
       startUrl,
@@ -131,7 +128,8 @@ const Index = () => {
     );
 
     if (!newPopup) {
-      // Popup was blocked - fallback to redirect flow
+      // Popup was blocked - fallback to full redirect
+      console.log('[Frontend] Popup blocked, falling back to redirect');
       setAuthError("Popup ble blokkert. Omdirigerer...");
       toast({
         title: "Popup blokkert",
@@ -146,8 +144,28 @@ const Index = () => {
 
     setPopup(newPopup);
 
-    // No need for polling anymore - the popup will redirect back to this page with session_key
-    // The useEffect above will handle the rest
+    // Set 120 second timeout
+    const timeout = setTimeout(() => {
+      console.log('[Frontend] OAuth timeout reached');
+      
+      if (newPopup && !newPopup.closed) {
+        try {
+          newPopup.close();
+        } catch (e) {
+          console.warn('[Frontend] Could not close popup:', e);
+        }
+      }
+      
+      setIsLoggingIn(false);
+      setAuthError('Innlogging tok for lang tid. Prøv igjen.');
+      toast({
+        title: "Timeout",
+        description: "Innlogging tok for lang tid. Prøv igjen.",
+        variant: "destructive",
+      });
+    }, 120000); // 120 seconds
+
+    setTimeoutId(timeout as unknown as number);
   };
   const features = [
     {
