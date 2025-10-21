@@ -313,48 +313,19 @@ Deno.serve(async (req) => {
 
       console.log('Session saved, sending postMessage to parent window');
 
-      // Return minimal HTML that sends postMessage to opener and closes
+      // Get PUBLIC_APP_URL for postMessage target
+      const publicAppUrl = Deno.env.get('PUBLIC_APP_URL') || 'https://swell-sales-boost.lovable.app';
+      
+      // Return minimal HTML that sends postMessage and closes immediately
       const html = `
         <!DOCTYPE html>
         <html>
-        <head>
-          <title>Authentication Successful</title>
-          <style>
-            body {
-              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              min-height: 100vh;
-              margin: 0;
-              background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-              color: white;
-            }
-            .message {
-              text-align: center;
-              padding: 2rem;
-            }
-            .spinner {
-              width: 40px;
-              height: 40px;
-              border: 4px solid rgba(255,255,255,0.3);
-              border-top-color: white;
-              border-radius: 50%;
-              animation: spin 1s linear infinite;
-              margin: 0 auto 1rem;
-            }
-            @keyframes spin {
-              to { transform: rotate(360deg); }
-            }
-          </style>
-        </head>
+        <head><title>Redirecting...</title></head>
         <body>
-          <div class="message">
-            <div class="spinner"></div>
-            <h2>Authentication Successful!</h2>
-            <p>Closing window...</p>
-          </div>
           <script>
+            const publicAppUrl = '${publicAppUrl}';
+            const targetOrigin = new URL(publicAppUrl).origin;
+            
             if (window.opener) {
               window.opener.postMessage({ 
                 type: 'hubspot-auth-success', 
@@ -362,11 +333,10 @@ Deno.serve(async (req) => {
                 token: '${sessionToken}',
                 tenantId: '${tenant.id}',
                 userId: '${user.id}'
-              }, window.opener.location.origin);
+              }, targetOrigin);
               window.close();
             } else {
-              // Fallback if no opener
-              window.location.href = '${frontendUrl || Deno.env.get('PUBLIC_APP_URL')}/?session_key=${sessionKey}';
+              window.location.href = publicAppUrl + '/?session_key=${sessionKey}';
             }
           </script>
         </body>
@@ -400,45 +370,28 @@ Deno.serve(async (req) => {
 
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     
-    // Return HTML that sends error message and closes popup
+    // Get PUBLIC_APP_URL for postMessage target
+    const publicAppUrl = Deno.env.get('PUBLIC_APP_URL') || 'https://swell-sales-boost.lovable.app';
+    
+    // Return minimal HTML that sends error message and closes popup
     const html = `
       <!DOCTYPE html>
       <html>
-      <head>
-        <title>Authentication Error</title>
-        <style>
-          body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            min-height: 100vh;
-            margin: 0;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-          }
-          .error {
-            text-align: center;
-            padding: 2rem;
-          }
-        </style>
-      </head>
+      <head><title>Error</title></head>
       <body>
-        <div class="error">
-          <h2>Authentication Error</h2>
-          <p>Closing window...</p>
-        </div>
         <script>
-          if (window.opener && window.opener.location) {
+          const publicAppUrl = '${publicAppUrl}';
+          const targetOrigin = new URL(publicAppUrl).origin;
+          
+          if (window.opener) {
             window.opener.postMessage({ 
               type: 'hubspot-auth-error', 
               source: 'hubspot',
               error: '${errorMessage.replace(/'/g, "\\'")}'
-            }, window.opener.location.origin);
+            }, targetOrigin);
             window.close();
           } else {
-            // Fallback if no opener
-            window.location.href = '${Deno.env.get('PUBLIC_APP_URL')}/?error=${encodeURIComponent(errorMessage)}';
+            window.location.href = publicAppUrl + '/?error=${encodeURIComponent(errorMessage)}';
           }
         </script>
       </body>
