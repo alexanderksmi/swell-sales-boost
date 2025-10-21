@@ -31,6 +31,29 @@ const Index = () => {
     }, 500);
   };
 
+  // Check for auth success in URL params (redirect fallback)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('auth') === 'success') {
+      console.log('[Frontend] Auth success detected in URL params');
+      // Clear the URL param
+      window.history.replaceState({}, '', '/');
+      // If this is a popup, close it, otherwise navigate to dashboard
+      if (window.opener && !window.opener.closed) {
+        console.log('[Frontend] Closing popup and notifying opener');
+        window.opener.postMessage({ 
+          type: 'hubspot-auth-success', 
+          source: 'hubspot',
+          sessionCreated: true
+        }, '*');
+        window.close();
+      } else {
+        console.log('[Frontend] Not a popup, navigating to dashboard');
+        handleSuccess();
+      }
+    }
+  }, []);
+
   useEffect(() => {
     const handleAuthMessage = (event: MessageEvent) => {
       console.debug('[Frontend] postMessage received:', { 

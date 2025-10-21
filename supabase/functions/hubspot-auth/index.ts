@@ -267,6 +267,11 @@ Deno.serve(async (req) => {
 
       console.log('Session JWT created, closing popup');
 
+      // Get frontend URL from Referer header or environment variable
+      const referer = req.headers.get('referer');
+      const frontendUrl = Deno.env.get('FRONTEND_URL') || (referer ? new URL(referer).origin : null);
+      console.log('Frontend URL for redirect:', frontendUrl);
+
       // Return HTML that sends postMessage and closes the popup
       const html = `
         <!DOCTYPE html>
@@ -279,12 +284,13 @@ Deno.serve(async (req) => {
             console.log('[Callback] Script starting...');
             console.log('[Callback] window.opener exists?', !!window.opener);
             
+            const FRONTEND_URL = ${frontendUrl ? `'${frontendUrl}'` : 'null'};
+            
             try {
-              if (window.opener) {
+              if (window.opener && !window.opener.closed) {
                 console.log('[Callback] window.opener detected');
-                console.log('[Callback] window.opener.location exists?', !!window.opener.location);
                 
-                // Try localStorage fallback first
+                // Try localStorage fallback
                 try {
                   localStorage.setItem('hubspot_auth_success', 'true');
                   console.log('[Callback] localStorage flag set');
@@ -292,7 +298,7 @@ Deno.serve(async (req) => {
                   console.error('[Callback] localStorage failed:', e);
                 }
                 
-                // Send postMessage with wildcard target for debugging
+                // Send postMessage with wildcard target
                 console.log('[Callback] Sending postMessage with wildcard target');
                 window.opener.postMessage({ 
                   type: 'hubspot-auth-success', 
@@ -301,21 +307,34 @@ Deno.serve(async (req) => {
                 }, '*');
                 console.log('[Callback] postMessage sent successfully');
                 
-                // Close after a short delay to ensure message is sent
+                // URL redirect fallback: If postMessage doesn't work, redirect the popup to frontend
                 setTimeout(() => {
-                  console.log('[Callback] Closing popup window');
-                  window.close();
-                }, 100);
+                  if (FRONTEND_URL) {
+                    console.log('[Callback] Redirecting popup to frontend with auth param');
+                    window.location.href = FRONTEND_URL + '/?auth=success';
+                  } else {
+                    console.log('[Callback] No frontend URL, closing popup');
+                    window.close();
+                  }
+                }, 1000);
               } else {
-                console.log('[Callback] No window.opener, redirecting in same window');
-                window.location.href = '/app/leaderboard?auth=success';
+                console.log('[Callback] No window.opener, redirecting to frontend');
+                if (FRONTEND_URL) {
+                  window.location.href = FRONTEND_URL + '/?auth=success';
+                } else {
+                  document.body.innerHTML = '<p>Authentication successful. You can close this window.</p>';
+                }
               }
             } catch (error) {
               console.error('[Callback] Error in auth callback:', error);
-              document.body.innerHTML = '<p>Authentication successful. You can close this window.</p>';
+              if (FRONTEND_URL) {
+                window.location.href = FRONTEND_URL + '/?auth=success';
+              } else {
+                document.body.innerHTML = '<p>Authentication successful. You can close this window.</p>';
+              }
             }
           </script>
-          <p>Authentication successful. This window should close automatically...</p>
+          <p>Authentication successful. Redirecting...</p>
         </body>
         </html>
       `;
