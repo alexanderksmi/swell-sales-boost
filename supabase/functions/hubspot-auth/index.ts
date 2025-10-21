@@ -107,17 +107,17 @@ Deno.serve(async (req) => {
         },
       });
 
-      // Upsert tenant with portal ID
+      // Upsert tenant with portal ID (using portal_id for upsert, tenant_id auto-generated)
       const { data: tenant, error: tenantError } = await supabase
         .from('tenants')
         .upsert(
           {
-            id: portalId,
+            portal_id: portalId,
             hubspot_portal_id: portalId,
             company_name: `HubSpot Portal ${portalId}`,
             updated_at: new Date().toISOString(),
           },
-          { onConflict: 'hubspot_portal_id' }
+          { onConflict: 'portal_id' }
         )
         .select()
         .single();
@@ -257,6 +257,9 @@ Deno.serve(async (req) => {
 
       console.log('Session generated, closing popup');
 
+      // Get frontend origin from redirect URI
+      const frontendOrigin = new URL(HUBSPOT_REDIRECT_URI!).origin;
+
       // Return HTML that sends postMessage and closes the popup
       const html = `
         <!DOCTYPE html>
@@ -268,7 +271,7 @@ Deno.serve(async (req) => {
           <script>
             // Send success message to parent window
             if (window.opener) {
-              window.opener.postMessage({ type: 'hubspot-auth-success' }, '${url.origin}');
+              window.opener.postMessage({ type: 'hubspot-auth-success' }, '${frontendOrigin}');
               window.close();
             } else {
               // Fallback if opened in same window
@@ -307,6 +310,9 @@ Deno.serve(async (req) => {
 
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     
+    // Get frontend origin from redirect URI
+    const frontendOrigin = new URL(HUBSPOT_REDIRECT_URI!).origin;
+    
     // Return HTML that sends error message and closes popup
     const html = `
       <!DOCTYPE html>
@@ -320,7 +326,7 @@ Deno.serve(async (req) => {
             window.opener.postMessage({ 
               type: 'hubspot-auth-error', 
               error: '${errorMessage.replace(/'/g, "\\'")}'
-            }, '${url.origin}');
+            }, '${frontendOrigin}');
             window.close();
           } else {
             document.body.innerHTML = '<p>Error: ${errorMessage.replace(/'/g, "\\'")}</p>';
