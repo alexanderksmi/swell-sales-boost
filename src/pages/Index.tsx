@@ -7,33 +7,49 @@ import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
+const EDGE_ORIGIN = 'https://ffbdcvvxiklzgfwrhbta.supabase.co';
+
 const Index = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [authError, setAuthError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [popup, setPopup] = useState<Window | null>(null);
+
+  const handleSuccess = () => {
+    setIsLoggingIn(false);
+    setAuthError(null);
+    if (popup && !popup.closed) {
+      popup.close();
+    }
+    toast({
+      title: "Innlogging vellykket",
+      description: "Du blir omdirigert til leaderboard...",
+    });
+    setTimeout(() => {
+      navigate('/app/leaderboard');
+    }, 500);
+  };
 
   useEffect(() => {
     const handleAuthMessage = (event: MessageEvent) => {
+      console.debug('postMessage', event.origin, event.data);
+      
       // Only handle messages with source: 'hubspot'
       if (!event.data || event.data.source !== 'hubspot') {
+        return;
+      }
+
+      // Only accept from Supabase edge origin
+      if (event.origin !== EDGE_ORIGIN) {
+        console.warn('Rejected message from unauthorized origin:', event.origin);
         return;
       }
 
       console.log('Received HubSpot auth message:', event.data);
 
       if (event.data.type === 'hubspot-auth-success') {
-        setAuthError(null);
-        setIsLoggingIn(false);
-        toast({
-          title: "Innlogging vellykket",
-          description: "Du blir omdirigert til leaderboard...",
-        });
-        
-        // Navigate directly - session is set via HttpOnly cookie
-        setTimeout(() => {
-          navigate('/app/leaderboard');
-        }, 500);
+        handleSuccess();
       } else if (event.data.type === 'hubspot-auth-error') {
         const errorMsg = event.data.error || "En ukjent feil oppstod";
         setAuthError(errorMsg);
@@ -48,7 +64,7 @@ const Index = () => {
 
     window.addEventListener('message', handleAuthMessage);
     return () => window.removeEventListener('message', handleAuthMessage);
-  }, [navigate, toast]);
+  }, [navigate, toast, popup]);
 
   const handleHubSpotLogin = () => {
     setAuthError(null);
@@ -58,15 +74,15 @@ const Index = () => {
     const height = 700;
     const left = window.screen.width / 2 - width / 2;
     const top = window.screen.height / 2 - height / 2;
-    const startUrl = 'https://ffbdcvvxiklzgfwrhbta.supabase.co/functions/v1/hubspot-auth/start';
+    const startUrl = `${EDGE_ORIGIN}/functions/v1/hubspot-auth/start`;
     
-    const popup = window.open(
+    const newPopup = window.open(
       startUrl,
       'hubspot-oauth',
       `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
     );
 
-    if (!popup) {
+    if (!newPopup) {
       // Popup was blocked - fallback to redirect flow
       setAuthError("Popup ble blokkert. Omdirigerer...");
       toast({
@@ -80,10 +96,44 @@ const Index = () => {
       return;
     }
 
+    setPopup(newPopup);
+
+    // Fallback: Poll session endpoint every 500ms for 2 minutes
+    let pollCount = 0;
+    const maxPolls = (2 * 60 * 1000) / 500; // 240 polls over 2 minutes
+    
+    const pollInterval = setInterval(async () => {
+      pollCount++;
+      
+      try {
+        const response = await fetch(`${EDGE_ORIGIN}/functions/v1/api-session-me`, {
+          credentials: 'include', // Include cookies
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (data.session) {
+            console.log('Session polling successful:', data);
+            clearInterval(pollInterval);
+            clearTimeout(timeoutId);
+            handleSuccess();
+          }
+        }
+      } catch (error) {
+        console.debug('Session poll attempt', pollCount, error);
+      }
+      
+      // Stop polling after 2 minutes
+      if (pollCount >= maxPolls) {
+        clearInterval(pollInterval);
+      }
+    }, 500);
+
     // Set 2-minute timeout for popup
     const timeoutId = setTimeout(() => {
-      if (popup && !popup.closed) {
-        popup.close();
+      clearInterval(pollInterval);
+      if (newPopup && !newPopup.closed) {
+        newPopup.close();
         setIsLoggingIn(false);
         setAuthError("Innlogging tok for lang tid. Vennligst prøv igjen.");
         toast({
@@ -96,8 +146,9 @@ const Index = () => {
 
     // Monitor popup closure
     const popupCheckInterval = setInterval(() => {
-      if (popup.closed) {
+      if (newPopup.closed) {
         clearInterval(popupCheckInterval);
+        clearInterval(pollInterval);
         clearTimeout(timeoutId);
         // If popup was closed without receiving a message
         setTimeout(() => {
