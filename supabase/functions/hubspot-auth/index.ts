@@ -293,7 +293,7 @@ Deno.serve(async (req) => {
       console.log('Session JWT created, closing popup');
       console.log('Using frontend URL for redirect:', frontendUrl);
 
-      // Return HTML that sends postMessage and closes the popup
+      // Return HTML that sends postMessage and closes the popup immediately
       const html = `
         <!DOCTYPE html>
         <html>
@@ -305,13 +305,11 @@ Deno.serve(async (req) => {
             console.log('[Callback] Script starting...');
             console.log('[Callback] window.opener exists?', !!window.opener);
             
-            const FRONTEND_URL = ${frontendUrl ? `'${frontendUrl}'` : 'null'};
-            
             try {
               if (window.opener && !window.opener.closed) {
                 console.log('[Callback] window.opener detected');
                 
-                // Try localStorage fallback
+                // Set localStorage flag for polling fallback
                 try {
                   localStorage.setItem('hubspot_auth_success', 'true');
                   console.log('[Callback] localStorage flag set');
@@ -319,43 +317,31 @@ Deno.serve(async (req) => {
                   console.error('[Callback] localStorage failed:', e);
                 }
                 
-                // Send postMessage with wildcard target
-                console.log('[Callback] Sending postMessage with wildcard target');
+                // Send postMessage to opener
+                console.log('[Callback] Sending postMessage');
                 window.opener.postMessage({ 
                   type: 'hubspot-auth-success', 
                   source: 'hubspot',
                   sessionCreated: true
                 }, '*');
-                console.log('[Callback] postMessage sent successfully');
+                console.log('[Callback] postMessage sent');
                 
-                // URL redirect fallback: If postMessage doesn't work, redirect the popup to frontend
+                // Close popup immediately after sending message
+                console.log('[Callback] Closing popup window...');
                 setTimeout(() => {
-                  if (FRONTEND_URL) {
-                    console.log('[Callback] Redirecting popup to frontend with auth param');
-                    window.location.href = FRONTEND_URL + '/?auth=success';
-                  } else {
-                    console.log('[Callback] No frontend URL, closing popup');
-                    window.close();
-                  }
-                }, 1000);
+                  window.close();
+                }, 500);
               } else {
-                console.log('[Callback] No window.opener, redirecting to frontend');
-                if (FRONTEND_URL) {
-                  window.location.href = FRONTEND_URL + '/?auth=success';
-                } else {
-                  document.body.innerHTML = '<p>Authentication successful. You can close this window.</p>';
-                }
+                console.log('[Callback] No window.opener found');
+                document.body.innerHTML = '<p>Authentication successful! Please close this window and return to the app.</p>';
               }
             } catch (error) {
-              console.error('[Callback] Error in auth callback:', error);
-              if (FRONTEND_URL) {
-                window.location.href = FRONTEND_URL + '/?auth=success';
-              } else {
-                document.body.innerHTML = '<p>Authentication successful. You can close this window.</p>';
-              }
+              console.error('[Callback] Error:', error);
+              document.body.innerHTML = '<p>Authentication successful! Please close this window and return to the app.</p>';
             }
           </script>
-          <p>Authentication successful. Redirecting...</p>
+          <h2>Authentication Successful</h2>
+          <p>Closing window...</p>
         </body>
         </html>
       `;

@@ -52,28 +52,7 @@ const Index = () => {
     }, 500);
   };
 
-  // Check for auth success in URL params (redirect fallback)
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('auth') === 'success') {
-      console.log('[Frontend] Auth success detected in URL params');
-      // Clear the URL param
-      window.history.replaceState({}, '', '/');
-      // If this is a popup, close it, otherwise navigate to dashboard
-      if (window.opener && !window.opener.closed) {
-        console.log('[Frontend] Closing popup and notifying opener');
-        window.opener.postMessage({ 
-          type: 'hubspot-auth-success', 
-          source: 'hubspot',
-          sessionCreated: true
-        }, '*');
-        window.close();
-      } else {
-        console.log('[Frontend] Not a popup, navigating to dashboard');
-        handleSuccess();
-      }
-    }
-  }, []);
+  // Removed redirect fallback - not needed with direct popup close
 
   useEffect(() => {
     const handleAuthMessage = (event: MessageEvent) => {
@@ -157,10 +136,14 @@ const Index = () => {
 
     // localStorage polling fallback (in case postMessage fails)
     let pollCount = 0;
-    const maxPolls = 60; // 30 seconds
+    const maxPolls = 120; // 60 seconds (longer timeout)
     const localStoragePoll = setInterval(() => {
       pollCount++;
-      console.debug('[Frontend] Polling localStorage, attempt:', pollCount);
+      
+      // Only log every 10th attempt to reduce noise
+      if (pollCount % 10 === 0) {
+        console.log('[Frontend] Polling localStorage, attempt:', pollCount);
+      }
       
       const authSuccess = localStorage.getItem('hubspot_auth_success');
       if (authSuccess === 'true') {
