@@ -54,9 +54,15 @@ const Index = () => {
 
   // Listen for postMessage from popup with session_key
   useEffect(() => {
+    let messageReceived = false;
+    let pollTimeout: NodeJS.Timeout | null = null;
+
     const handleMessage = (event: MessageEvent) => {
       // Security: validate message structure
       if (event.data?.type === 'hubspot-auth-complete' && event.data?.sessionKey) {
+        messageReceived = true;
+        if (pollTimeout) clearTimeout(pollTimeout);
+        
         const sessionKey = event.data.sessionKey;
         console.log('[Frontend] Received session_key from popup, exchanging for token');
         
@@ -101,6 +107,9 @@ const Index = () => {
             setIsLoggingIn(false);
           });
       } else if (event.data?.type === 'hubspot-auth-error') {
+        messageReceived = true;
+        if (pollTimeout) clearTimeout(pollTimeout);
+        
         console.error('[Frontend] Auth error from popup:', event.data.error);
         setAuthError(event.data.error);
         setIsLoggingIn(false);
@@ -112,9 +121,38 @@ const Index = () => {
       }
     };
 
+    // Fallback: Poll for session if postMessage is not received within 3 seconds
+    if (isLoggingIn) {
+      pollTimeout = setTimeout(async () => {
+        if (!messageReceived) {
+          console.log('[Frontend] No postMessage received, polling for session...');
+          try {
+            const sessionData = await checkSession();
+            if (sessionData.authenticated) {
+              console.log('[Frontend] Session found via polling, redirecting');
+              toast({
+                title: "Innlogging vellykket",
+                description: "Velkommen til Swell!",
+              });
+              navigate('/app/leaderboard');
+            } else {
+              console.log('[Frontend] No session found via polling');
+              setIsLoggingIn(false);
+            }
+          } catch (error) {
+            console.error('[Frontend] Polling failed:', error);
+            setIsLoggingIn(false);
+          }
+        }
+      }, 3000);
+    }
+
     window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, [navigate, toast]);
+    return () => {
+      window.removeEventListener('message', handleMessage);
+      if (pollTimeout) clearTimeout(pollTimeout);
+    };
+  }, [navigate, toast, isLoggingIn]);
 
   const handleHubSpotLogin = () => {
     setAuthError(null);

@@ -319,21 +319,68 @@ Deno.serve(async (req) => {
         <html>
         <head>
           <title>Authentication Successful</title>
+          <style>
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              min-height: 100vh;
+              margin: 0;
+              background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+              color: white;
+            }
+            .message {
+              text-align: center;
+              padding: 2rem;
+            }
+            .spinner {
+              width: 40px;
+              height: 40px;
+              border: 4px solid rgba(255,255,255,0.3);
+              border-top-color: white;
+              border-radius: 50%;
+              animation: spin 1s linear infinite;
+              margin: 0 auto 1rem;
+            }
+            @keyframes spin {
+              to { transform: rotate(360deg); }
+            }
+          </style>
         </head>
         <body>
+          <div class="message">
+            <div class="spinner"></div>
+            <h2>Authentication Successful!</h2>
+            <p>Closing window...</p>
+          </div>
           <script>
             if (window.opener) {
-              window.opener.postMessage({ 
-                type: 'hubspot-auth-complete', 
-                source: 'hubspot',
-                sessionKey: '${sessionKey}'
-              }, '*');
-              window.close();
+              let attempts = 0;
+              const maxAttempts = 10;
+              
+              const sendMessage = () => {
+                console.log('[Popup] Sending postMessage attempt', attempts + 1);
+                window.opener.postMessage({ 
+                  type: 'hubspot-auth-complete', 
+                  source: 'hubspot',
+                  sessionKey: '${sessionKey}'
+                }, '*');
+                
+                attempts++;
+                if (attempts < maxAttempts) {
+                  setTimeout(sendMessage, 200); // Send every 200ms
+                } else {
+                  console.log('[Popup] Max attempts reached, closing window');
+                  setTimeout(() => window.close(), 500); // Close after 2 seconds total
+                }
+              };
+              
+              sendMessage();
             } else {
-              document.body.innerHTML = '<p>Authentication successful. You can close this window.</p>';
+              document.body.innerHTML = '<div class="message"><p>Authentication successful. You can close this window.</p></div>';
             }
           </script>
-          <p>Authentication successful...</p>
         </body>
         </html>
       `;
