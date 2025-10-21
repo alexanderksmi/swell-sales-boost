@@ -14,6 +14,27 @@ export type Database = {
   }
   public: {
     Tables: {
+      auth_sessions: {
+        Row: {
+          created_at: string
+          expires_at: string
+          session_key: string
+          session_token: string
+        }
+        Insert: {
+          created_at?: string
+          expires_at?: string
+          session_key: string
+          session_token: string
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string
+          session_key?: string
+          session_token?: string
+        }
+        Relationships: []
+      }
       hubspot_tokens: {
         Row: {
           access_token: string

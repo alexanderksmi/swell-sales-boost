@@ -14,3 +14,6 @@ verify_jwt = false
 
 [functions.api-session-me]
 verify_jwt = false
+
+[functions.api-exchange-session]
+verify_jwt = false

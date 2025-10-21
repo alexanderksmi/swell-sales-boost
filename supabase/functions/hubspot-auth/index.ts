@@ -290,70 +290,36 @@ Deno.serve(async (req) => {
       
       const sessionToken = `${header}.${payload}.${signature}`;
 
-      console.log('Session JWT created, sending to frontend');
-      console.log('Using frontend URL:', frontendUrl);
+      console.log('Session JWT created, saving to database');
 
-      // Return HTML that sends JWT token via postMessage
-      const html = `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <title>Authentication Success</title>
-        </head>
-        <body>
-          <script>
-            console.log('[Callback] Starting auth callback script');
-            console.log('[Callback] window.opener exists?', !!window.opener);
-            
-            const sessionToken = '${sessionToken}';
-            
-            try {
-              if (window.opener && !window.opener.closed) {
-                console.log('[Callback] Sending session token to opener');
-                
-                // Send JWT token via postMessage
-                window.opener.postMessage({ 
-                  type: 'hubspot-auth-success', 
-                  source: 'hubspot',
-                  sessionToken: sessionToken
-                }, '*');
-                console.log('[Callback] Token sent via postMessage');
-                
-                // Also set in localStorage as fallback
-                try {
-                  localStorage.setItem('swell_session', sessionToken);
-                  console.log('[Callback] Token saved to localStorage');
-                } catch (e) {
-                  console.error('[Callback] localStorage failed:', e);
-                }
-                
-                // Close popup after short delay
-                setTimeout(() => {
-                  console.log('[Callback] Closing popup');
-                  window.close();
-                }, 500);
-              } else {
-                console.log('[Callback] No window.opener');
-                document.body.innerHTML = '<p>Authentication successful! Please close this window.</p>';
-              }
-            } catch (error) {
-              console.error('[Callback] Error:', error);
-              document.body.innerHTML = '<p>Authentication successful! Please close this window.</p>';
-            }
-          </script>
-          <h2>✓ Authentication Successful</h2>
-          <p>Closing window...</p>
-        </body>
-        </html>
-      `;
-      
-      return new Response(html, {
-        status: 200,
+      // Generate unique session key
+      const sessionKey = crypto.randomUUID();
+
+      // Save session to database with 5 minute expiry
+      const { error: sessionError } = await supabase
+        .from('auth_sessions')
+        .insert({
+          session_key: sessionKey,
+          session_token: sessionToken
+        });
+
+      if (sessionError) {
+        console.error('Failed to save session:', sessionError);
+        return new Response(
+          JSON.stringify({ error: 'Failed to create session' }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
+        );
+      }
+
+      console.log('Session saved, redirecting to frontend with session_key');
+
+      // Redirect popup to frontend with session_key
+      return new Response(null, {
+        status: 302,
         headers: {
           ...corsHeaders,
-          'Content-Type': 'text/html',
-          'Set-Cookie': `swell_session=${sessionToken}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${60 * 60 * 24 * 7}`,
-        },
+          'Location': `${frontendUrl}/?session_key=${sessionKey}`
+        }
       });
     }
 
