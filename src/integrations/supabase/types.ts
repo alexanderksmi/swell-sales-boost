@@ -398,6 +398,7 @@ export type Database = {
           created_at: string
           email: string
           full_name: string | null
+          hs_owner_id: string | null
           hubspot_user_id: string | null
           id: string
           tenant_id: string
@@ -407,8 +408,9 @@ export type Database = {
           created_at?: string
           email: string
           full_name?: string | null
+          hs_owner_id?: string | null
           hubspot_user_id?: string | null
-          id: string
+          id?: string
           tenant_id: string
           updated_at?: string
         }
@@ -416,6 +418,7 @@ export type Database = {
           created_at?: string
           email?: string
           full_name?: string | null
+          hs_owner_id?: string | null
           hubspot_user_id?: string | null
           id?: string
           tenant_id?: string

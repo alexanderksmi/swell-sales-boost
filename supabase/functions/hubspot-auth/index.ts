@@ -146,68 +146,35 @@ Deno.serve(async (req) => {
 
       console.log('Is first user:', isFirstUser, 'Role:', userRole);
 
-      // Create or get Supabase auth user
-      const { data: authData, error: authError } = await supabase.auth.admin.createUser({
-        email: userEmail,
-        email_confirm: true,
-        user_metadata: {
-          hubspot_user_id: hubspotUserId,
-          portal_id: portalId,
-        },
-      });
-
-      let userId: string;
-
-      if (authError) {
-        if (authError.message.includes('already registered')) {
-          console.log('User already exists, fetching existing user');
-          const { data: existingUser, error: fetchError } = await supabase.auth.admin.listUsers();
-          
-          if (fetchError) {
-            throw new Error(`Failed to fetch existing user: ${fetchError.message}`);
-          }
-
-          const user = existingUser.users.find(u => u.email === userEmail);
-          if (!user) {
-            throw new Error('User exists but could not be found');
-          }
-          userId = user.id;
-        } else {
-          console.error('Auth user creation error:', authError);
-          throw new Error(`Failed to create auth user: ${authError.message}`);
-        }
-      } else {
-        userId = authData.user.id;
-        console.log('Auth user created:', userId);
-      }
-
-      // Upsert user profile
-      const { error: profileError } = await supabase
+      // Upsert user on (tenant_id, email) - id will be auto-generated if new
+      const { data: user, error: userError } = await supabase
         .from('users')
         .upsert(
           {
-            id: userId,
             tenant_id: tenant.id,
             email: userEmail,
             hubspot_user_id: hubspotUserId,
+            hs_owner_id: hubspotUserId,
             updated_at: new Date().toISOString(),
           },
-          { onConflict: 'id' }
-        );
+          { onConflict: 'tenant_id,email' }
+        )
+        .select()
+        .single();
 
-      if (profileError) {
-        console.error('Profile upsert error:', profileError);
-        throw new Error(`Failed to create/update user profile: ${profileError.message}`);
+      if (userError) {
+        console.error('User upsert error:', userError);
+        throw new Error(`Failed to create/update user: ${userError.message}`);
       }
 
-      console.log('User profile upserted');
+      console.log('User upserted:', user.id);
 
       // Assign role to user
       const { error: roleError } = await supabase
         .from('user_roles')
         .upsert(
           {
-            user_id: userId,
+            user_id: user.id,
             tenant_id: tenant.id,
             role: userRole,
           },
@@ -244,18 +211,39 @@ Deno.serve(async (req) => {
 
       console.log('Tokens stored successfully');
 
-      // Generate Supabase session for the user
-      const { data: sessionData, error: sessionError } = await supabase.auth.admin.generateLink({
-        type: 'magiclink',
+      // Create session JWT with tenant_id and user_id
+      const sessionPayload = {
+        tenant_id: tenant.id,
+        user_id: user.id,
         email: userEmail,
-      });
+        exp: Math.floor(Date.now() / 1000) + (60 * 60 * 24 * 7), // 7 days
+      };
 
-      if (sessionError) {
-        console.error('Session generation error:', sessionError);
-        throw new Error(`Failed to generate session: ${sessionError.message}`);
-      }
+      // Simple JWT creation (for production, use proper JWT library)
+      const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+      const payload = btoa(JSON.stringify(sessionPayload));
+      const jwtSecret = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
+      
+      // Create signature using Web Crypto API
+      const encoder = new TextEncoder();
+      const data = encoder.encode(`${header}.${payload}`);
+      const keyData = encoder.encode(jwtSecret);
+      const cryptoKey = await crypto.subtle.importKey(
+        'raw',
+        keyData,
+        { name: 'HMAC', hash: 'SHA-256' },
+        false,
+        ['sign']
+      );
+      const signatureBuffer = await crypto.subtle.sign('HMAC', cryptoKey, data);
+      const signature = btoa(String.fromCharCode(...new Uint8Array(signatureBuffer)))
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=/g, '');
+      
+      const sessionToken = `${header}.${payload}.${signature}`;
 
-      console.log('Session generated, closing popup');
+      console.log('Session JWT created, closing popup');
 
       // Get frontend origin from redirect URI
       const frontendOrigin = new URL(HUBSPOT_REDIRECT_URI!).origin;
@@ -288,6 +276,7 @@ Deno.serve(async (req) => {
         headers: {
           ...corsHeaders,
           'Content-Type': 'text/html',
+          'Set-Cookie': `swell_session=${sessionToken}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${60 * 60 * 24 * 7}`,
         },
       });
     }
