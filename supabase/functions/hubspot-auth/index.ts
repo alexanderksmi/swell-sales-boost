@@ -129,7 +129,7 @@ Deno.serve(async (req) => {
 
       console.log('Tenant upserted:', tenant.id);
 
-      // Check if this is the first user in the tenant
+      // Check if this is the first user in the tenant to determine initial role
       const { data: existingUsers, error: usersCheckError } = await supabase
         .from('users')
         .select('id')
@@ -142,51 +142,73 @@ Deno.serve(async (req) => {
       }
 
       const isFirstUser = !existingUsers || existingUsers.length === 0;
-      const userRole = isFirstUser ? 'org_admin' : 'sales_rep';
+      const initialRole = isFirstUser ? 'org_admin' : 'sales_rep';
 
-      console.log('Is first user:', isFirstUser, 'Role:', userRole);
+      console.log('Is first user:', isFirstUser, 'Initial role:', initialRole);
 
-      // Upsert user on (tenant_id, email) - id will be auto-generated if new
-      const { data: user, error: userError } = await supabase
+      // Upsert user: ON CONFLICT (tenant_id, email) UPDATE only hs fields, not role
+      // First try to insert with role
+      let user;
+      let userError;
+      
+      const { data: insertedUser, error: insertError } = await supabase
         .from('users')
-        .upsert(
-          {
-            tenant_id: tenant.id,
-            email: userEmail,
-            hubspot_user_id: hubspotUserId,
-            hs_owner_id: hubspotUserId,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: 'tenant_id,email' }
-        )
+        .insert({
+          tenant_id: tenant.id,
+          email: userEmail,
+          hubspot_user_id: hubspotUserId,
+          hs_owner_id: hubspotUserId,
+          updated_at: new Date().toISOString(),
+        })
         .select()
         .single();
 
-      if (userError) {
-        console.error('User upsert error:', userError);
-        throw new Error(`Failed to create/update user: ${userError.message}`);
-      }
-
-      console.log('User upserted:', user.id);
-
-      // Assign role to user
-      const { error: roleError } = await supabase
-        .from('user_roles')
-        .upsert(
-          {
+      if (insertError) {
+        // User exists, do update without touching role
+        if (insertError.code === '23505') { // unique violation
+          console.log('User exists, updating hs fields only');
+          const { data: updatedUser, error: updateError } = await supabase
+            .from('users')
+            .update({
+              hubspot_user_id: hubspotUserId,
+              hs_owner_id: hubspotUserId,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('tenant_id', tenant.id)
+            .eq('email', userEmail)
+            .select()
+            .single();
+          
+          if (updateError) {
+            console.error('User update error:', updateError);
+            throw new Error(`Failed to update user: ${updateError.message}`);
+          }
+          user = updatedUser;
+        } else {
+          console.error('User insert error:', insertError);
+          throw new Error(`Failed to create user: ${insertError.message}`);
+        }
+      } else {
+        user = insertedUser;
+        
+        // Only assign role if this is a new user
+        const { error: roleError } = await supabase
+          .from('user_roles')
+          .insert({
             user_id: user.id,
             tenant_id: tenant.id,
-            role: userRole,
-          },
-          { onConflict: 'user_id,role' }
-        );
+            role: initialRole,
+          });
 
-      if (roleError) {
-        console.error('Role assignment error:', roleError);
-        throw new Error(`Failed to assign role: ${roleError.message}`);
+        if (roleError && roleError.code !== '23505') { // ignore duplicate role
+          console.error('Role assignment error:', roleError);
+          throw new Error(`Failed to assign role: ${roleError.message}`);
+        }
+
+        console.log('New user created with role:', initialRole);
       }
 
-      console.log('Role assigned:', userRole);
+      console.log('User processed:', user.id);
 
       // Store HubSpot tokens
       const expiresAt = new Date(Date.now() + tokens.expires_in * 1000).toISOString();
