@@ -276,17 +276,43 @@ Deno.serve(async (req) => {
         </head>
         <body>
           <script>
-            // Send success message to parent window using its origin
-            if (window.opener && window.opener.location) {
-              window.opener.postMessage({ 
-                type: 'hubspot-auth-success', 
-                source: 'hubspot',
-                sessionCreated: true
-              }, window.opener.location.origin);
-              window.close();
-            } else {
-              // Fallback if opened in same window
-              window.location.href = '/app/leaderboard?auth=success';
+            console.log('[Callback] Script starting...');
+            console.log('[Callback] window.opener exists?', !!window.opener);
+            
+            try {
+              if (window.opener) {
+                console.log('[Callback] window.opener detected');
+                console.log('[Callback] window.opener.location exists?', !!window.opener.location);
+                
+                // Try localStorage fallback first
+                try {
+                  localStorage.setItem('hubspot_auth_success', 'true');
+                  console.log('[Callback] localStorage flag set');
+                } catch (e) {
+                  console.error('[Callback] localStorage failed:', e);
+                }
+                
+                // Send postMessage with wildcard target for debugging
+                console.log('[Callback] Sending postMessage with wildcard target');
+                window.opener.postMessage({ 
+                  type: 'hubspot-auth-success', 
+                  source: 'hubspot',
+                  sessionCreated: true
+                }, '*');
+                console.log('[Callback] postMessage sent successfully');
+                
+                // Close after a short delay to ensure message is sent
+                setTimeout(() => {
+                  console.log('[Callback] Closing popup window');
+                  window.close();
+                }, 100);
+              } else {
+                console.log('[Callback] No window.opener, redirecting in same window');
+                window.location.href = '/app/leaderboard?auth=success';
+              }
+            } catch (error) {
+              console.error('[Callback] Error in auth callback:', error);
+              document.body.innerHTML = '<p>Authentication successful. You can close this window.</p>';
             }
           </script>
           <p>Authentication successful. This window should close automatically...</p>

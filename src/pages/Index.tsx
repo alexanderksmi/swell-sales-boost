@@ -33,7 +33,7 @@ const Index = () => {
 
   useEffect(() => {
     const handleAuthMessage = (event: MessageEvent) => {
-      console.debug('postMessage received:', { 
+      console.debug('[Frontend] postMessage received:', { 
         origin: event.origin, 
         windowOrigin: window.location.origin,
         edgeOrigin: EDGE_ORIGIN,
@@ -42,24 +42,19 @@ const Index = () => {
       
       // Only handle messages with source: 'hubspot'
       if (!event.data || event.data.source !== 'hubspot') {
+        console.debug('[Frontend] Ignoring message, not from hubspot source');
         return;
       }
 
-      // Accept from either edge origin OR our own origin
-      const isValidOrigin = event.origin === EDGE_ORIGIN || 
-                            event.origin === window.location.origin;
-      
-      if (!isValidOrigin) {
-        console.warn('Rejected message from unauthorized origin:', event.origin);
-        return;
-      }
-
-      console.log('Received HubSpot auth message:', event.data);
+      // Temporarily accept from ANY origin for debugging (only validate source)
+      console.log('[Frontend] Valid HubSpot message received:', event.data);
 
       if (event.data.type === 'hubspot-auth-success') {
+        console.log('[Frontend] Auth success detected, calling handleSuccess');
         handleSuccess();
       } else if (event.data.type === 'hubspot-auth-error') {
         const errorMsg = event.data.error || "En ukjent feil oppstod";
+        console.error('[Frontend] Auth error:', errorMsg);
         setAuthError(errorMsg);
         setIsLoggingIn(false);
         toast({
@@ -71,7 +66,12 @@ const Index = () => {
     };
 
     window.addEventListener('message', handleAuthMessage);
-    return () => window.removeEventListener('message', handleAuthMessage);
+    console.log('[Frontend] Message listener registered');
+    
+    return () => {
+      window.removeEventListener('message', handleAuthMessage);
+      console.log('[Frontend] Message listener removed');
+    };
   }, [navigate, toast, popup]);
 
   const handleHubSpotLogin = () => {
@@ -106,8 +106,31 @@ const Index = () => {
 
     setPopup(newPopup);
 
+    // localStorage polling fallback (in case postMessage fails)
+    let pollCount = 0;
+    const maxPolls = 60; // 30 seconds
+    const localStoragePoll = setInterval(() => {
+      pollCount++;
+      console.debug('[Frontend] Polling localStorage, attempt:', pollCount);
+      
+      const authSuccess = localStorage.getItem('hubspot_auth_success');
+      if (authSuccess === 'true') {
+        console.log('[Frontend] localStorage flag detected, auth successful');
+        localStorage.removeItem('hubspot_auth_success');
+        clearInterval(localStoragePoll);
+        clearTimeout(timeoutId);
+        handleSuccess();
+      }
+      
+      if (pollCount >= maxPolls) {
+        console.log('[Frontend] localStorage polling stopped after', pollCount, 'attempts');
+        clearInterval(localStoragePoll);
+      }
+    }, 500);
+
     // Set 2-minute timeout for popup
     const timeoutId = setTimeout(() => {
+      clearInterval(localStoragePoll);
       if (newPopup && !newPopup.closed) {
         newPopup.close();
         setIsLoggingIn(false);
@@ -124,6 +147,7 @@ const Index = () => {
     const popupCheckInterval = setInterval(() => {
       if (newPopup.closed) {
         clearInterval(popupCheckInterval);
+        clearInterval(localStoragePoll);
         clearTimeout(timeoutId);
         // If popup was closed without receiving a message
         setTimeout(() => {
