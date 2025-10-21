@@ -13,6 +13,7 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 
 // OAuth scopes required for HubSpot integration
 const SCOPES = [
+  'crm.objects.contacts.read',
   'crm.objects.deals.read',
   'crm.objects.owners.read',
   'crm.schemas.deals.read',
