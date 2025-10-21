@@ -33,15 +33,23 @@ const Index = () => {
 
   useEffect(() => {
     const handleAuthMessage = (event: MessageEvent) => {
-      console.debug('postMessage', event.origin, event.data);
+      console.debug('postMessage received:', { 
+        origin: event.origin, 
+        windowOrigin: window.location.origin,
+        edgeOrigin: EDGE_ORIGIN,
+        data: event.data 
+      });
       
       // Only handle messages with source: 'hubspot'
       if (!event.data || event.data.source !== 'hubspot') {
         return;
       }
 
-      // Only accept from Supabase edge origin
-      if (event.origin !== EDGE_ORIGIN) {
+      // Accept from either edge origin OR our own origin
+      const isValidOrigin = event.origin === EDGE_ORIGIN || 
+                            event.origin === window.location.origin;
+      
+      if (!isValidOrigin) {
         console.warn('Rejected message from unauthorized origin:', event.origin);
         return;
       }
@@ -98,40 +106,8 @@ const Index = () => {
 
     setPopup(newPopup);
 
-    // Fallback: Poll session endpoint every 500ms for 2 minutes
-    let pollCount = 0;
-    const maxPolls = (2 * 60 * 1000) / 500; // 240 polls over 2 minutes
-    
-    const pollInterval = setInterval(async () => {
-      pollCount++;
-      
-      try {
-        const response = await fetch(`${EDGE_ORIGIN}/functions/v1/api-session-me`, {
-          credentials: 'include', // Include cookies
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          if (data.session) {
-            console.log('Session polling successful:', data);
-            clearInterval(pollInterval);
-            clearTimeout(timeoutId);
-            handleSuccess();
-          }
-        }
-      } catch (error) {
-        console.debug('Session poll attempt', pollCount, error);
-      }
-      
-      // Stop polling after 2 minutes
-      if (pollCount >= maxPolls) {
-        clearInterval(pollInterval);
-      }
-    }, 500);
-
     // Set 2-minute timeout for popup
     const timeoutId = setTimeout(() => {
-      clearInterval(pollInterval);
       if (newPopup && !newPopup.closed) {
         newPopup.close();
         setIsLoggingIn(false);
@@ -148,7 +124,6 @@ const Index = () => {
     const popupCheckInterval = setInterval(() => {
       if (newPopup.closed) {
         clearInterval(popupCheckInterval);
-        clearInterval(pollInterval);
         clearTimeout(timeoutId);
         // If popup was closed without receiving a message
         setTimeout(() => {

@@ -280,12 +280,13 @@ Deno.serve(async (req) => {
             if (window.opener && window.opener.location) {
               window.opener.postMessage({ 
                 type: 'hubspot-auth-success', 
-                source: 'hubspot' 
+                source: 'hubspot',
+                sessionCreated: true
               }, window.opener.location.origin);
               window.close();
             } else {
               // Fallback if opened in same window
-              window.location.href = '/app/leaderboard';
+              window.location.href = '/app/leaderboard?auth=success';
             }
           </script>
           <p>Authentication successful. This window should close automatically...</p>
