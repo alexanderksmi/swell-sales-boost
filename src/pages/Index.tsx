@@ -7,11 +7,15 @@ import { useNavigate } from "react-router-dom";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 const EDGE_ORIGIN = 'https://ffbdcvvxiklzgfwrhbta.supabase.co';
+const LOGIN_TIMEOUT_MS = 120000; // 120 seconds
 
 const Index = () => {
   const navigate = useNavigate();
   const popupRef = useRef<Window | null>(null);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [checkingSession, setCheckingSession] = useState(true);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
 
   // Check if user is already logged in
   useEffect(() => {
@@ -28,35 +32,92 @@ const Index = () => {
     checkExistingSession();
   }, [navigate]);
 
-  // Global message listener for OAuth callback
+  // Listen for custom events from App.tsx message handler
   useEffect(() => {
-    function handleMessage(e: MessageEvent) {
-      console.debug("OAuth postMessage", e.origin, e.data);
-      if (e.origin !== "https://ffbdcvvxiklzgfwrhbta.supabase.co") return;
-      if (e.data?.source !== "hubspot") return;
-      if (e.data?.type === "hubspot-auth-success") {
-        if (e.data?.token) localStorage.setItem("swell_token", e.data.token);
-        try { popupRef.current?.close(); } catch {}
-        navigate("/app/leaderboard");
-      } else if (e.data?.type === "hubspot-auth-error") {
-        try { popupRef.current?.close(); } catch {}
-        alert("Innlogging feilet: " + (e.data?.error || ""));
+    const handleAuthSuccess = () => {
+      console.debug('[Index] Auth success event received');
+      setIsLoggingIn(false);
+      setLoginError(null);
+      // Clear timeout
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
       }
-    }
-    window.addEventListener("message", handleMessage);
-    return () => window.removeEventListener("message", handleMessage);
-  }, [navigate]);
+      // Close popup
+      try {
+        popupRef.current?.close();
+      } catch (e) {
+        console.debug('[Index] Could not close popup:', e);
+      }
+    };
+
+    const handleAuthError = (event: Event) => {
+      const customEvent = event as CustomEvent<{ error: string }>;
+      console.debug('[Index] Auth error event received:', customEvent.detail?.error);
+      setIsLoggingIn(false);
+      setLoginError(customEvent.detail?.error || 'Innlogging feilet');
+      // Clear timeout
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+      // Close popup
+      try {
+        popupRef.current?.close();
+      } catch (e) {
+        console.debug('[Index] Could not close popup:', e);
+      }
+    };
+
+    window.addEventListener('hubspot-auth-success', handleAuthSuccess);
+    window.addEventListener('hubspot-auth-error', handleAuthError as EventListener);
+
+    return () => {
+      window.removeEventListener('hubspot-auth-success', handleAuthSuccess);
+      window.removeEventListener('hubspot-auth-error', handleAuthError as EventListener);
+    };
+  }, []);
 
   const handleHubSpotLogin = () => {
-    popupRef.current = window.open(
-      "https://ffbdcvvxiklzgfwrhbta.supabase.co/functions/v1/hubspot-auth/start",
-      "hubspot-oauth",
-      "width=600,height=720"
-    );
-    if (!popupRef.current) {
-      window.location.href = "https://ffbdcvvxiklzgfwrhbta.supabase.co/functions/v1/hubspot-auth/start";
+    setIsLoggingIn(true);
+    setLoginError(null);
+
+    // Open popup synchronously (important for popup blockers)
+    const popup = window.open('about:blank', 'hubspot-oauth', 'width=600,height=720');
+    popupRef.current = popup;
+
+    if (!popup) {
+      // Popup blocked - fallback to full redirect
+      console.log('[Index] Popup blocked, falling back to full redirect');
+      window.location.href = `${EDGE_ORIGIN}/functions/v1/hubspot-auth/start`;
+      return;
     }
+
+    // Set URL after opening blank popup
+    popup.location.href = `${EDGE_ORIGIN}/functions/v1/hubspot-auth/start`;
+
+    // Set 120s timeout
+    timeoutRef.current = setTimeout(() => {
+      console.warn('[Index] Login timeout - no response after 120s');
+      setIsLoggingIn(false);
+      setLoginError('Innlogging tok for lang tid. Vennligst prøv igjen.');
+      try {
+        popupRef.current?.close();
+      } catch (e) {
+        console.debug('[Index] Could not close popup on timeout:', e);
+      }
+      popupRef.current = null;
+    }, LOGIN_TIMEOUT_MS);
   };
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
   const features = [
     {
       icon: Trophy,
@@ -156,13 +217,29 @@ const Index = () => {
             engasjerende konkurranse med sanntids leaderboards og poengberegning.
           </p>
 
+          {loginError && (
+            <Alert variant="destructive" className="mb-6 max-w-md mx-auto">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Feil</AlertTitle>
+              <AlertDescription>{loginError}</AlertDescription>
+            </Alert>
+          )}
+
           <div className="flex flex-wrap gap-4 justify-center">
             <Button 
               size="lg" 
               className="bg-gradient-to-r from-primary to-primary-glow hover:opacity-90 transition-opacity shadow-lg"
               onClick={handleHubSpotLogin}
+              disabled={isLoggingIn}
             >
-              Logg inn med HubSpot
+              {isLoggingIn ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Logger inn...
+                </>
+              ) : (
+                'Logg inn med HubSpot'
+              )}
             </Button>
             <Button size="lg" variant="outline">
               Les dokumentasjon

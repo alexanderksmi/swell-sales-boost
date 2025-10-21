@@ -32,7 +32,11 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
       
       return originalFetch(input, newInit);
     } else {
-      console.log('[Fetch Interceptor] No token found in localStorage');
+      console.warn('[Fetch Interceptor] No token found - redirecting to login');
+      // Redirect to login page if no token is found
+      window.location.href = '/';
+      // Return a rejected promise to prevent the fetch from continuing
+      return Promise.reject(new Error('No authentication token found'));
     }
   }
   
