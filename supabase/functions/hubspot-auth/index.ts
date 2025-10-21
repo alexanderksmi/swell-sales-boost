@@ -267,9 +267,6 @@ Deno.serve(async (req) => {
 
       console.log('Session JWT created, closing popup');
 
-      // Get frontend origin from redirect URI
-      const frontendOrigin = new URL(HUBSPOT_REDIRECT_URI!).origin;
-
       // Return HTML that sends postMessage and closes the popup
       const html = `
         <!DOCTYPE html>
@@ -279,9 +276,12 @@ Deno.serve(async (req) => {
         </head>
         <body>
           <script>
-            // Send success message to parent window
-            if (window.opener) {
-              window.opener.postMessage({ type: 'hubspot-auth-success' }, '${frontendOrigin}');
+            // Send success message to parent window using its origin
+            if (window.opener && window.opener.location) {
+              window.opener.postMessage({ 
+                type: 'hubspot-auth-success', 
+                source: 'hubspot' 
+              }, window.opener.location.origin);
               window.close();
             } else {
               // Fallback if opened in same window
@@ -321,9 +321,6 @@ Deno.serve(async (req) => {
 
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     
-    // Get frontend origin from redirect URI
-    const frontendOrigin = new URL(HUBSPOT_REDIRECT_URI!).origin;
-    
     // Return HTML that sends error message and closes popup
     const html = `
       <!DOCTYPE html>
@@ -333,11 +330,12 @@ Deno.serve(async (req) => {
       </head>
       <body>
         <script>
-          if (window.opener) {
+          if (window.opener && window.opener.location) {
             window.opener.postMessage({ 
               type: 'hubspot-auth-error', 
+              source: 'hubspot',
               error: '${errorMessage.replace(/'/g, "\\'")}'
-            }, '${frontendOrigin}');
+            }, window.opener.location.origin);
             window.close();
           } else {
             document.body.innerHTML = '<p>Error: ${errorMessage.replace(/'/g, "\\'")}</p>';
