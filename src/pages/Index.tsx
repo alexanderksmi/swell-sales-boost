@@ -105,7 +105,12 @@ const Index = () => {
     const height = 700;
     const left = window.screen.width / 2 - width / 2;
     const top = window.screen.height / 2 - height / 2;
-    const startUrl = `${EDGE_ORIGIN}/functions/v1/hubspot-auth/start`;
+    
+    // Pass frontend URL to edge function so it knows where to redirect
+    const frontendUrl = encodeURIComponent(window.location.origin);
+    const startUrl = `${EDGE_ORIGIN}/functions/v1/hubspot-auth/start?frontend_url=${frontendUrl}`;
+    
+    console.log('[Frontend] Opening OAuth popup with frontend URL:', window.location.origin);
     
     const newPopup = window.open(
       startUrl,

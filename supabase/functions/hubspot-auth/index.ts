@@ -33,10 +33,22 @@ Deno.serve(async (req) => {
   try {
     // Route: /start - Initiate OAuth flow
     if (path.includes('/start')) {
+      // Get frontend URL from query param or referer
+      const frontendUrl = url.searchParams.get('frontend_url') || req.headers.get('referer') || '';
+      const cleanFrontendUrl = frontendUrl ? new URL(frontendUrl).origin : '';
+      
+      console.log('Starting OAuth with frontend URL:', cleanFrontendUrl);
+      
       const hubspotAuthUrl = new URL('https://app.hubspot.com/oauth/authorize');
       hubspotAuthUrl.searchParams.set('client_id', HUBSPOT_CLIENT_ID!);
       hubspotAuthUrl.searchParams.set('redirect_uri', HUBSPOT_REDIRECT_URI!);
       hubspotAuthUrl.searchParams.set('scope', SCOPES);
+      
+      // Pass frontend URL through OAuth state
+      if (cleanFrontendUrl) {
+        const state = btoa(JSON.stringify({ frontend_url: cleanFrontendUrl }));
+        hubspotAuthUrl.searchParams.set('state', state);
+      }
       
       console.log('Redirecting to HubSpot OAuth:', hubspotAuthUrl.toString());
       
@@ -52,6 +64,19 @@ Deno.serve(async (req) => {
     // Route: /callback - Handle OAuth callback
     if (path.includes('/callback')) {
       const code = url.searchParams.get('code');
+      const state = url.searchParams.get('state');
+      
+      // Extract frontend URL from state
+      let frontendUrl = '';
+      if (state) {
+        try {
+          const stateData = JSON.parse(atob(state));
+          frontendUrl = stateData.frontend_url || '';
+          console.log('Frontend URL from state:', frontendUrl);
+        } catch (e) {
+          console.error('Failed to parse state:', e);
+        }
+      }
       
       if (!code) {
         throw new Error('No authorization code provided');
@@ -266,11 +291,7 @@ Deno.serve(async (req) => {
       const sessionToken = `${header}.${payload}.${signature}`;
 
       console.log('Session JWT created, closing popup');
-
-      // Get frontend URL from Referer header or environment variable
-      const referer = req.headers.get('referer');
-      const frontendUrl = Deno.env.get('FRONTEND_URL') || (referer ? new URL(referer).origin : null);
-      console.log('Frontend URL for redirect:', frontendUrl);
+      console.log('Using frontend URL for redirect:', frontendUrl);
 
       // Return HTML that sends postMessage and closes the popup
       const html = `
