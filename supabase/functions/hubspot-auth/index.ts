@@ -311,20 +311,14 @@ Deno.serve(async (req) => {
         );
       }
 
-      console.log('Session saved, redirecting back to frontend with session_key');
+      console.log('Session saved, redirecting to frontend with session_key');
 
-      // Redirect back to frontend with session_key
-      const redirectUrl = frontendUrl || 'http://localhost:8080';
-      const redirectUrlWithKey = new URL(redirectUrl);
-      redirectUrlWithKey.searchParams.set('session_key', sessionKey);
-      
-      console.log('Redirecting to:', redirectUrlWithKey.toString());
-
+      // Redirect popup to frontend with session_key
       return new Response(null, {
         status: 302,
         headers: {
           ...corsHeaders,
-          'Location': redirectUrlWithKey.toString(),
+          'Location': `${frontendUrl}/?session_key=${sessionKey}`
         }
       });
     }

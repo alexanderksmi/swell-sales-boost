@@ -52,16 +52,16 @@ const Index = () => {
     }, 500);
   };
 
-  // Check for session_key in URL after OAuth redirect
+  // Check for session_key in URL on mount
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const sessionKey = urlParams.get('session_key');
     
     if (sessionKey) {
-      console.log('[Frontend] Found session_key in URL, exchanging for token...');
+      console.log('[Frontend] Found session_key in URL, exchanging for token');
       setIsLoggingIn(true);
       
-      // Exchange session key for token
+      // Exchange session key for actual token
       const exchangeUrl = new URL(`${EDGE_ORIGIN}/functions/v1/api-exchange-session`);
       exchangeUrl.searchParams.set('session_key', sessionKey);
       
@@ -76,22 +76,23 @@ const Index = () => {
               variant: "destructive"
             });
             setIsLoggingIn(false);
-            // Clean URL
-            window.history.replaceState({}, '', window.location.pathname);
+            window.history.replaceState({}, document.title, window.location.pathname);
             return;
           }
 
           if (data.sessionToken) {
-            console.log('[Frontend] Session token received, storing and redirecting...');
+            console.log('[Frontend] Session token received, storing in localStorage');
             localStorage.setItem('swell_session', data.sessionToken);
+            
+            // Clean up URL
+            window.history.replaceState({}, document.title, window.location.pathname);
             
             toast({
               title: "Innlogging vellykket",
               description: "Velkommen til Swell!",
             });
             
-            // Clean URL and navigate
-            window.history.replaceState({}, '', window.location.pathname);
+            // Navigate to leaderboard
             navigate('/app/leaderboard');
           }
         })
@@ -103,23 +104,51 @@ const Index = () => {
             variant: "destructive"
           });
           setIsLoggingIn(false);
-          // Clean URL
-          window.history.replaceState({}, '', window.location.pathname);
+          window.history.replaceState({}, document.title, window.location.pathname);
         });
     }
   }, [navigate, toast]);
 
   const handleHubSpotLogin = () => {
     setAuthError(null);
-    console.log('[Frontend] Starting HubSpot login redirect...');
+    setIsLoggingIn(true);
     
-    // Redirect directly - no popup
+    const width = 600;
+    const height = 700;
+    const left = window.screen.width / 2 - width / 2;
+    const top = window.screen.height / 2 - height / 2;
+    
+    // Pass frontend URL to edge function so it knows where to redirect back
     const frontendUrl = encodeURIComponent(window.location.origin);
     const startUrl = `${EDGE_ORIGIN}/functions/v1/hubspot-auth/start?frontend_url=${frontendUrl}`;
     
-    window.location.href = startUrl;
+    console.log('[Frontend] Opening OAuth popup with frontend URL:', window.location.origin);
+    
+    const newPopup = window.open(
+      startUrl,
+      'hubspot-oauth',
+      `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
+    );
+
+    if (!newPopup) {
+      // Popup was blocked - fallback to redirect flow
+      setAuthError("Popup ble blokkert. Omdirigerer...");
+      toast({
+        title: "Popup blokkert",
+        description: "Omdirigerer til innlogging i samme vindu...",
+      });
+      
+      setTimeout(() => {
+        window.location.href = startUrl;
+      }, 1000);
+      return;
+    }
+
+    setPopup(newPopup);
+
+    // No need for polling anymore - the popup will redirect back to this page with session_key
+    // The useEffect above will handle the rest
   };
-  
   const features = [
     {
       icon: Trophy,
