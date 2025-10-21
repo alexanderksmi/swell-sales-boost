@@ -13,5 +13,18 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABL
     storage: localStorage,
     persistSession: true,
     autoRefreshToken: true,
-  }
+  },
+  global: {
+    headers: {
+      'x-swell-session': '',
+    },
+    fetch: (url, options) => {
+      const token = localStorage.getItem('swell_session');
+      const headers = new Headers(options?.headers);
+      if (token) {
+        headers.set('x-swell-session', token);
+      }
+      return fetch(url, { ...options, headers });
+    },
+  },
 });

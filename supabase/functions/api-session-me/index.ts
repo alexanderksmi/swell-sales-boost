@@ -2,7 +2,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.75.1';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-swell-session',
   'Access-Control-Allow-Credentials': 'true',
 };
 
@@ -17,14 +17,20 @@ Deno.serve(async (req) => {
   try {
     console.log('api-session-me: Checking session');
 
-    // Extract session JWT from cookie
-    const cookies = req.headers.get('cookie') || '';
-    const sessionMatch = cookies.match(/swell_session=([^;]+)/);
+    // Try custom header first (from fetch), then cookie
+    let sessionToken = req.headers.get('x-swell-session');
     
-    if (!sessionMatch) {
-      console.log('No session cookie found');
+    if (!sessionToken) {
+      // Fall back to cookie
+      const cookies = req.headers.get('cookie') || '';
+      const sessionMatch = cookies.match(/swell_session=([^;]+)/);
+      sessionToken = sessionMatch ? sessionMatch[1] : null;
+    }
+    
+    if (!sessionToken) {
+      console.log('No session token found in header or cookie');
       return new Response(
-        JSON.stringify({ session: false }),
+        JSON.stringify({ authenticated: false }),
         {
           status: 200,
           headers: {
@@ -34,8 +40,6 @@ Deno.serve(async (req) => {
         }
       );
     }
-
-    const sessionToken = sessionMatch[1];
     
     // Decode JWT (simple validation - in production use proper JWT library)
     try {
@@ -47,7 +51,7 @@ Deno.serve(async (req) => {
       if (payload.exp && payload.exp < now) {
         console.log('Session token expired');
         return new Response(
-          JSON.stringify({ session: false, error: 'Token expired' }),
+          JSON.stringify({ authenticated: false, error: 'Token expired' }),
           {
             status: 200,
             headers: {
@@ -76,7 +80,7 @@ Deno.serve(async (req) => {
       if (error || !user) {
         console.log('User not found in database:', error);
         return new Response(
-          JSON.stringify({ session: false, error: 'User not found' }),
+          JSON.stringify({ authenticated: false, error: 'User not found' }),
           {
             status: 200,
             headers: {
@@ -90,11 +94,13 @@ Deno.serve(async (req) => {
       console.log('Valid session found for user:', user.email);
       return new Response(
         JSON.stringify({
-          session: true,
+          authenticated: true,
           user: {
             id: user.id,
             email: user.email,
-            tenant_id: user.tenant_id,
+          },
+          tenant: {
+            id: user.tenant_id,
           },
         }),
         {
@@ -108,7 +114,7 @@ Deno.serve(async (req) => {
     } catch (decodeError) {
       console.error('JWT decode error:', decodeError);
       return new Response(
-        JSON.stringify({ session: false, error: 'Invalid token format' }),
+        JSON.stringify({ authenticated: false, error: 'Invalid token format' }),
         {
           status: 200,
           headers: {
@@ -122,7 +128,7 @@ Deno.serve(async (req) => {
     console.error('Session check error:', error);
     return new Response(
       JSON.stringify({
-        session: false,
+        authenticated: false,
         error: error instanceof Error ? error.message : 'Unknown error',
       }),
       {

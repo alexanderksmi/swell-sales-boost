@@ -56,24 +56,22 @@ const Index = () => {
 
   useEffect(() => {
     const handleAuthMessage = (event: MessageEvent) => {
-      console.debug('[Frontend] postMessage received:', { 
-        origin: event.origin, 
-        windowOrigin: window.location.origin,
-        edgeOrigin: EDGE_ORIGIN,
-        data: event.data 
-      });
+      console.log('[Frontend] postMessage received:', event.data);
       
       // Only handle messages with source: 'hubspot'
       if (!event.data || event.data.source !== 'hubspot') {
-        console.debug('[Frontend] Ignoring message, not from hubspot source');
         return;
       }
 
-      // Temporarily accept from ANY origin for debugging (only validate source)
-      console.log('[Frontend] Valid HubSpot message received:', event.data);
-
       if (event.data.type === 'hubspot-auth-success') {
-        console.log('[Frontend] Auth success detected, calling handleSuccess');
+        console.log('[Frontend] Auth success - received session token');
+        
+        // Store JWT token in localStorage
+        if (event.data.sessionToken) {
+          localStorage.setItem('swell_session', event.data.sessionToken);
+          console.log('[Frontend] Session token stored in localStorage');
+        }
+        
         handleSuccess();
       } else if (event.data.type === 'hubspot-auth-error') {
         const errorMsg = event.data.error || "En ukjent feil oppstod";
@@ -93,9 +91,8 @@ const Index = () => {
     
     return () => {
       window.removeEventListener('message', handleAuthMessage);
-      console.log('[Frontend] Message listener removed');
     };
-  }, [navigate, toast, popup]);
+  }, [navigate, toast]);
 
   const handleHubSpotLogin = () => {
     setAuthError(null);
@@ -134,28 +131,22 @@ const Index = () => {
 
     setPopup(newPopup);
 
-    // localStorage polling fallback (in case postMessage fails)
+    // localStorage polling fallback (checks for token)
     let pollCount = 0;
-    const maxPolls = 120; // 60 seconds (longer timeout)
+    const maxPolls = 120; // 60 seconds
     const localStoragePoll = setInterval(() => {
       pollCount++;
       
-      // Only log every 10th attempt to reduce noise
-      if (pollCount % 10 === 0) {
-        console.log('[Frontend] Polling localStorage, attempt:', pollCount);
-      }
-      
-      const authSuccess = localStorage.getItem('hubspot_auth_success');
-      if (authSuccess === 'true') {
-        console.log('[Frontend] localStorage flag detected, auth successful');
-        localStorage.removeItem('hubspot_auth_success');
+      const sessionToken = localStorage.getItem('swell_session');
+      if (sessionToken) {
+        console.log('[Frontend] Session token found in localStorage');
         clearInterval(localStoragePoll);
         clearTimeout(timeoutId);
         handleSuccess();
       }
       
       if (pollCount >= maxPolls) {
-        console.log('[Frontend] localStorage polling stopped after', pollCount, 'attempts');
+        console.log('[Frontend] Polling timed out');
         clearInterval(localStoragePoll);
       }
     }, 500);

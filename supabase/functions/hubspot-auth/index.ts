@@ -290,10 +290,10 @@ Deno.serve(async (req) => {
       
       const sessionToken = `${header}.${payload}.${signature}`;
 
-      console.log('Session JWT created, closing popup');
-      console.log('Using frontend URL for redirect:', frontendUrl);
+      console.log('Session JWT created, sending to frontend');
+      console.log('Using frontend URL:', frontendUrl);
 
-      // Return HTML that sends postMessage and closes the popup immediately
+      // Return HTML that sends JWT token via postMessage
       const html = `
         <!DOCTYPE html>
         <html>
@@ -302,45 +302,46 @@ Deno.serve(async (req) => {
         </head>
         <body>
           <script>
-            console.log('[Callback] Script starting...');
+            console.log('[Callback] Starting auth callback script');
             console.log('[Callback] window.opener exists?', !!window.opener);
+            
+            const sessionToken = '${sessionToken}';
             
             try {
               if (window.opener && !window.opener.closed) {
-                console.log('[Callback] window.opener detected');
+                console.log('[Callback] Sending session token to opener');
                 
-                // Set localStorage flag for polling fallback
+                // Send JWT token via postMessage
+                window.opener.postMessage({ 
+                  type: 'hubspot-auth-success', 
+                  source: 'hubspot',
+                  sessionToken: sessionToken
+                }, '*');
+                console.log('[Callback] Token sent via postMessage');
+                
+                // Also set in localStorage as fallback
                 try {
-                  localStorage.setItem('hubspot_auth_success', 'true');
-                  console.log('[Callback] localStorage flag set');
+                  localStorage.setItem('swell_session', sessionToken);
+                  console.log('[Callback] Token saved to localStorage');
                 } catch (e) {
                   console.error('[Callback] localStorage failed:', e);
                 }
                 
-                // Send postMessage to opener
-                console.log('[Callback] Sending postMessage');
-                window.opener.postMessage({ 
-                  type: 'hubspot-auth-success', 
-                  source: 'hubspot',
-                  sessionCreated: true
-                }, '*');
-                console.log('[Callback] postMessage sent');
-                
-                // Close popup immediately after sending message
-                console.log('[Callback] Closing popup window...');
+                // Close popup after short delay
                 setTimeout(() => {
+                  console.log('[Callback] Closing popup');
                   window.close();
                 }, 500);
               } else {
-                console.log('[Callback] No window.opener found');
-                document.body.innerHTML = '<p>Authentication successful! Please close this window and return to the app.</p>';
+                console.log('[Callback] No window.opener');
+                document.body.innerHTML = '<p>Authentication successful! Please close this window.</p>';
               }
             } catch (error) {
               console.error('[Callback] Error:', error);
-              document.body.innerHTML = '<p>Authentication successful! Please close this window and return to the app.</p>';
+              document.body.innerHTML = '<p>Authentication successful! Please close this window.</p>';
             }
           </script>
-          <h2>Authentication Successful</h2>
+          <h2>✓ Authentication Successful</h2>
           <p>Closing window...</p>
         </body>
         </html>
