@@ -52,61 +52,68 @@ const Index = () => {
     }, 500);
   };
 
-  // Check for session_key in URL on mount
+  // Listen for postMessage from popup with session_key
   useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const sessionKey = urlParams.get('session_key');
-    
-    if (sessionKey) {
-      console.log('[Frontend] Found session_key in URL, exchanging for token');
-      setIsLoggingIn(true);
-      
-      // Exchange session key for actual token
-      const exchangeUrl = new URL(`${EDGE_ORIGIN}/functions/v1/api-exchange-session`);
-      exchangeUrl.searchParams.set('session_key', sessionKey);
-      
-      fetch(exchangeUrl.toString())
-        .then(response => response.json())
-        .then(data => {
-          if (data.error) {
-            console.error('[Frontend] Failed to exchange session:', data.error);
+    const handleMessage = (event: MessageEvent) => {
+      // Security: validate message structure
+      if (event.data?.type === 'hubspot-auth-complete' && event.data?.sessionKey) {
+        const sessionKey = event.data.sessionKey;
+        console.log('[Frontend] Received session_key from popup, exchanging for token');
+        
+        // Exchange session key for actual token
+        const exchangeUrl = new URL(`${EDGE_ORIGIN}/functions/v1/api-exchange-session`);
+        exchangeUrl.searchParams.set('session_key', sessionKey);
+        
+        fetch(exchangeUrl.toString())
+          .then(response => response.json())
+          .then(data => {
+            if (data.error) {
+              console.error('[Frontend] Failed to exchange session:', data.error);
+              toast({
+                title: "Innlogging feilet",
+                description: "Kunne ikke fullføre autentisering. Prøv igjen.",
+                variant: "destructive"
+              });
+              setIsLoggingIn(false);
+              return;
+            }
+
+            if (data.sessionToken) {
+              console.log('[Frontend] Session token received, storing in localStorage');
+              localStorage.setItem('swell_session', data.sessionToken);
+              
+              toast({
+                title: "Innlogging vellykket",
+                description: "Velkommen til Swell!",
+              });
+              
+              // Navigate to leaderboard
+              navigate('/app/leaderboard');
+            }
+          })
+          .catch(error => {
+            console.error('[Frontend] Exchange request failed:', error);
             toast({
               title: "Innlogging feilet",
               description: "Kunne ikke fullføre autentisering. Prøv igjen.",
               variant: "destructive"
             });
             setIsLoggingIn(false);
-            window.history.replaceState({}, document.title, window.location.pathname);
-            return;
-          }
-
-          if (data.sessionToken) {
-            console.log('[Frontend] Session token received, storing in localStorage');
-            localStorage.setItem('swell_session', data.sessionToken);
-            
-            // Clean up URL
-            window.history.replaceState({}, document.title, window.location.pathname);
-            
-            toast({
-              title: "Innlogging vellykket",
-              description: "Velkommen til Swell!",
-            });
-            
-            // Navigate to leaderboard
-            navigate('/app/leaderboard');
-          }
-        })
-        .catch(error => {
-          console.error('[Frontend] Exchange request failed:', error);
-          toast({
-            title: "Innlogging feilet",
-            description: "Kunne ikke fullføre autentisering. Prøv igjen.",
-            variant: "destructive"
           });
-          setIsLoggingIn(false);
-          window.history.replaceState({}, document.title, window.location.pathname);
+      } else if (event.data?.type === 'hubspot-auth-error') {
+        console.error('[Frontend] Auth error from popup:', event.data.error);
+        setAuthError(event.data.error);
+        setIsLoggingIn(false);
+        toast({
+          title: "Innlogging feilet",
+          description: event.data.error,
+          variant: "destructive"
         });
-    }
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
   }, [navigate, toast]);
 
   const handleHubSpotLogin = () => {
@@ -146,8 +153,8 @@ const Index = () => {
 
     setPopup(newPopup);
 
-    // No need for polling anymore - the popup will redirect back to this page with session_key
-    // The useEffect above will handle the rest
+    // Popup will send postMessage with session_key when auth completes
+    // The useEffect listener will handle the exchange and navigation
   };
   const features = [
     {

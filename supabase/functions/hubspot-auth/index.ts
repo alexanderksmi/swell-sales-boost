@@ -311,14 +311,38 @@ Deno.serve(async (req) => {
         );
       }
 
-      console.log('Session saved, redirecting to frontend with session_key');
+      console.log('Session saved, sending session_key to opener');
 
-      // Redirect popup to frontend with session_key
-      return new Response(null, {
-        status: 302,
+      // Return HTML that sends postMessage to opener and closes popup
+      const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Authentication Successful</title>
+        </head>
+        <body>
+          <script>
+            if (window.opener) {
+              window.opener.postMessage({ 
+                type: 'hubspot-auth-complete', 
+                source: 'hubspot',
+                sessionKey: '${sessionKey}'
+              }, '*');
+              window.close();
+            } else {
+              document.body.innerHTML = '<p>Authentication successful. You can close this window.</p>';
+            }
+          </script>
+          <p>Authentication successful...</p>
+        </body>
+        </html>
+      `;
+
+      return new Response(html, {
+        status: 200,
         headers: {
           ...corsHeaders,
-          'Location': `${frontendUrl}/?session_key=${sessionKey}`
+          'Content-Type': 'text/html',
         }
       });
     }
