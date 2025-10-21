@@ -256,17 +256,36 @@ Deno.serve(async (req) => {
         throw new Error(`Failed to generate session: ${sessionError.message}`);
       }
 
-      console.log('Session generated, redirecting to app');
+      console.log('Session generated, closing popup');
 
-      // Redirect to app with access token in URL
-      const appUrl = new URL('/app/leaderboard', url.origin);
-      appUrl.searchParams.set('access_token', sessionData.properties.hashed_token);
+      // Return HTML that sends postMessage and closes the popup
+      const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Authentication Success</title>
+        </head>
+        <body>
+          <script>
+            // Send success message to parent window
+            if (window.opener) {
+              window.opener.postMessage({ type: 'hubspot-auth-success' }, '${url.origin}');
+              window.close();
+            } else {
+              // Fallback if opened in same window
+              window.location.href = '/app/leaderboard';
+            }
+          </script>
+          <p>Authentication successful. This window should close automatically...</p>
+        </body>
+        </html>
+      `;
       
-      return new Response(null, {
-        status: 302,
+      return new Response(html, {
+        status: 200,
         headers: {
           ...corsHeaders,
-          'Location': appUrl.toString(),
+          'Content-Type': 'text/html',
         },
       });
     }
@@ -287,18 +306,38 @@ Deno.serve(async (req) => {
   } catch (error) {
     console.error('HubSpot auth error:', error);
 
-    return new Response(
-      JSON.stringify({
-        error: error instanceof Error ? error.message : 'Unknown error',
-        details: error instanceof Error ? error.stack : undefined,
-      }),
-      {
-        status: 500,
-        headers: {
-          ...corsHeaders,
-          'Content-Type': 'application/json',
-        },
-      }
-    );
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    
+    // Return HTML that sends error message and closes popup
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Authentication Error</title>
+      </head>
+      <body>
+        <script>
+          if (window.opener) {
+            window.opener.postMessage({ 
+              type: 'hubspot-auth-error', 
+              error: '${errorMessage.replace(/'/g, "\\'")}'
+            }, '${url.origin}');
+            window.close();
+          } else {
+            document.body.innerHTML = '<p>Error: ${errorMessage.replace(/'/g, "\\'")}</p>';
+          }
+        </script>
+        <p>An error occurred during authentication...</p>
+      </body>
+      </html>
+    `;
+
+    return new Response(html, {
+      status: 500,
+      headers: {
+        ...corsHeaders,
+        'Content-Type': 'text/html',
+      },
+    });
   }
 });

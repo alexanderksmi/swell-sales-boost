@@ -2,8 +2,72 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Trophy, Zap, Target, TrendingUp, Users, Settings } from "lucide-react";
 import { motion } from "framer-motion";
+import { useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
 
 const Index = () => {
+  const navigate = useNavigate();
+  const { toast } = useToast();
+
+  useEffect(() => {
+    const handleAuthMessage = async (event: MessageEvent) => {
+      // Verify origin for security
+      if (event.origin !== window.location.origin) return;
+
+      if (event.data.type === 'hubspot-auth-success') {
+        toast({
+          title: "Innlogging vellykket",
+          description: "Du blir omdirigert til leaderboard...",
+        });
+        
+        // Wait a moment for session to be established
+        setTimeout(async () => {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session) {
+            navigate('/app/leaderboard');
+          } else {
+            toast({
+              title: "Feil",
+              description: "Kunne ikke opprette sesjon",
+              variant: "destructive",
+            });
+          }
+        }, 1000);
+      } else if (event.data.type === 'hubspot-auth-error') {
+        toast({
+          title: "Innlogging feilet",
+          description: event.data.error || "En ukjent feil oppstod",
+          variant: "destructive",
+        });
+      }
+    };
+
+    window.addEventListener('message', handleAuthMessage);
+    return () => window.removeEventListener('message', handleAuthMessage);
+  }, [navigate, toast]);
+
+  const handleHubSpotLogin = () => {
+    const width = 600;
+    const height = 700;
+    const left = window.screen.width / 2 - width / 2;
+    const top = window.screen.height / 2 - height / 2;
+    
+    const popup = window.open(
+      'https://ffbdcvvxiklzgfwrhbta.supabase.co/functions/v1/hubspot-auth/start',
+      'hubspot-oauth',
+      `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
+    );
+
+    if (!popup) {
+      toast({
+        title: "Popup blokkert",
+        description: "Vennligst tillat popup-vinduer for denne siden",
+        variant: "destructive",
+      });
+    }
+  };
   const features = [
     {
       icon: Trophy,
@@ -95,11 +159,9 @@ const Index = () => {
             <Button 
               size="lg" 
               className="bg-gradient-to-r from-primary to-primary-glow hover:opacity-90 transition-opacity shadow-lg"
-              onClick={() => {
-                window.location.href = 'https://ffbdcvvxiklzgfwrhbta.supabase.co/functions/v1/hubspot-auth/start';
-              }}
+              onClick={handleHubSpotLogin}
             >
-              Connect with HubSpot
+              Logg inn med HubSpot
             </Button>
             <Button size="lg" variant="outline">
               Les dokumentasjon
