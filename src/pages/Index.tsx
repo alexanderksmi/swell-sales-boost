@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Trophy, Zap, Target, TrendingUp, Users, Settings, AlertCircle } from "lucide-react";
+import { Trophy, Zap, Target, TrendingUp, Users, Settings, AlertCircle, Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -11,23 +11,20 @@ const Index = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [authError, setAuthError] = useState<string | null>(null);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   useEffect(() => {
     const handleAuthMessage = (event: MessageEvent) => {
-      // Accept messages from our edge function (deployed on supabase.co)
-      // and from our own origin for testing
-      const allowedOrigins = [
-        window.location.origin,
-        'https://ffbdcvvxiklzgfwrhbta.supabase.co',
-      ];
-      
-      if (!allowedOrigins.some(origin => event.origin.startsWith(origin))) {
-        console.warn('Rejected message from unauthorized origin:', event.origin);
+      // Only handle messages with source: 'hubspot'
+      if (!event.data || event.data.source !== 'hubspot') {
         return;
       }
 
+      console.log('Received HubSpot auth message:', event.data);
+
       if (event.data.type === 'hubspot-auth-success') {
         setAuthError(null);
+        setIsLoggingIn(false);
         toast({
           title: "Innlogging vellykket",
           description: "Du blir omdirigert til leaderboard...",
@@ -40,6 +37,7 @@ const Index = () => {
       } else if (event.data.type === 'hubspot-auth-error') {
         const errorMsg = event.data.error || "En ukjent feil oppstod";
         setAuthError(errorMsg);
+        setIsLoggingIn(false);
         toast({
           title: "Innlogging feilet",
           description: errorMsg,
@@ -53,31 +51,62 @@ const Index = () => {
   }, [navigate, toast]);
 
   const handleHubSpotLogin = () => {
-    setAuthError(null); // Clear any previous errors
+    setAuthError(null);
+    setIsLoggingIn(true);
     
     const width = 600;
     const height = 700;
     const left = window.screen.width / 2 - width / 2;
     const top = window.screen.height / 2 - height / 2;
+    const startUrl = 'https://ffbdcvvxiklzgfwrhbta.supabase.co/functions/v1/hubspot-auth/start';
     
     const popup = window.open(
-      'https://ffbdcvvxiklzgfwrhbta.supabase.co/functions/v1/hubspot-auth/start',
+      startUrl,
       'hubspot-oauth',
       `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
     );
 
-    if (!popup || popup.closed) {
+    if (!popup) {
       // Popup was blocked - fallback to redirect flow
-      setAuthError("Popup ble blokkert. Prøver redirect-flow...");
+      setAuthError("Popup ble blokkert. Omdirigerer...");
       toast({
         title: "Popup blokkert",
         description: "Omdirigerer til innlogging i samme vindu...",
       });
       
       setTimeout(() => {
-        window.location.href = 'https://ffbdcvvxiklzgfwrhbta.supabase.co/functions/v1/hubspot-auth/start';
+        window.location.href = startUrl;
       }, 1000);
+      return;
     }
+
+    // Set 2-minute timeout for popup
+    const timeoutId = setTimeout(() => {
+      if (popup && !popup.closed) {
+        popup.close();
+        setIsLoggingIn(false);
+        setAuthError("Innlogging tok for lang tid. Vennligst prøv igjen.");
+        toast({
+          title: "Timeout",
+          description: "Innloggingen tok for lang tid. Prøv igjen.",
+          variant: "destructive",
+        });
+      }
+    }, 2 * 60 * 1000); // 2 minutes
+
+    // Monitor popup closure
+    const popupCheckInterval = setInterval(() => {
+      if (popup.closed) {
+        clearInterval(popupCheckInterval);
+        clearTimeout(timeoutId);
+        // If popup was closed without receiving a message
+        setTimeout(() => {
+          if (isLoggingIn) {
+            setIsLoggingIn(false);
+          }
+        }, 1000);
+      }
+    }, 500);
   };
   const features = [
     {
@@ -185,8 +214,18 @@ const Index = () => {
               size="lg" 
               className="bg-gradient-to-r from-primary to-primary-glow hover:opacity-90 transition-opacity shadow-lg"
               onClick={handleHubSpotLogin}
+              disabled={isLoggingIn}
             >
-              {authError ? 'Prøv igjen' : 'Logg inn med HubSpot'}
+              {isLoggingIn ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Logger inn...
+                </>
+              ) : authError ? (
+                'Prøv igjen'
+              ) : (
+                'Logg inn med HubSpot'
+              )}
             </Button>
             <Button size="lg" variant="outline">
               Les dokumentasjon
