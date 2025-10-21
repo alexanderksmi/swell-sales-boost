@@ -52,150 +52,74 @@ const Index = () => {
     }, 500);
   };
 
-  // Always-active listener for postMessage from popup
+  // Check for session_key in URL after OAuth redirect
   useEffect(() => {
-    console.log('[Frontend] Setting up permanent postMessage listener...');
+    const urlParams = new URLSearchParams(window.location.search);
+    const sessionKey = urlParams.get('session_key');
     
-    const handleMessage = (event: MessageEvent) => {
-      console.log('[Frontend] Received message:', event.data);
+    if (sessionKey) {
+      console.log('[Frontend] Found session_key in URL, exchanging for token...');
+      setIsLoggingIn(true);
       
-      // Security: validate message structure
-      if (event.data?.type === 'hubspot-auth-complete' && event.data?.sessionKey) {
-        const sessionKey = event.data.sessionKey;
-        console.log('[Frontend] Received session_key from popup, exchanging for token');
-        
-        // Exchange session key for actual token
-        const exchangeUrl = new URL(`${EDGE_ORIGIN}/functions/v1/api-exchange-session`);
-        exchangeUrl.searchParams.set('session_key', sessionKey);
-        
-        fetch(exchangeUrl.toString())
-          .then(response => response.json())
-          .then(data => {
-            if (data.error) {
-              console.error('[Frontend] Failed to exchange session:', data.error);
-              toast({
-                title: "Innlogging feilet",
-                description: "Kunne ikke fullføre autentisering. Prøv igjen.",
-                variant: "destructive"
-              });
-              setIsLoggingIn(false);
-              return;
-            }
-
-            if (data.sessionToken) {
-              console.log('[Frontend] Session token received, storing in localStorage');
-              localStorage.setItem('swell_session', data.sessionToken);
-              
-              toast({
-                title: "Innlogging vellykket",
-                description: "Velkommen til Swell!",
-              });
-              
-              setIsLoggingIn(false);
-              navigate('/app/leaderboard');
-            }
-          })
-          .catch(error => {
-            console.error('[Frontend] Exchange request failed:', error);
+      // Exchange session key for token
+      const exchangeUrl = new URL(`${EDGE_ORIGIN}/functions/v1/api-exchange-session`);
+      exchangeUrl.searchParams.set('session_key', sessionKey);
+      
+      fetch(exchangeUrl.toString())
+        .then(response => response.json())
+        .then(data => {
+          if (data.error) {
+            console.error('[Frontend] Failed to exchange session:', data.error);
             toast({
               title: "Innlogging feilet",
               description: "Kunne ikke fullføre autentisering. Prøv igjen.",
               variant: "destructive"
             });
             setIsLoggingIn(false);
-          });
-      } else if (event.data?.type === 'hubspot-auth-error') {
-        console.error('[Frontend] Auth error from popup:', event.data.error);
-        setAuthError(event.data.error);
-        setIsLoggingIn(false);
-        toast({
-          title: "Innlogging feilet",
-          description: event.data.error,
-          variant: "destructive"
-        });
-      }
-    };
+            // Clean URL
+            window.history.replaceState({}, '', window.location.pathname);
+            return;
+          }
 
-    window.addEventListener('message', handleMessage);
-    return () => {
-      console.log('[Frontend] Cleaning up postMessage listener');
-      window.removeEventListener('message', handleMessage);
-    };
-  }, [navigate, toast]);
-
-  // Fallback polling - only active during login
-  useEffect(() => {
-    if (!isLoggingIn) return;
-    
-    console.log('[Frontend] Starting fallback polling timeout (3s)...');
-    const pollTimeout = setTimeout(async () => {
-      console.log('[Frontend] Fallback: polling for session after 3s timeout...');
-      try {
-        const sessionData = await checkSession();
-        if (sessionData.authenticated) {
-          console.log('[Frontend] Session found via polling, redirecting');
+          if (data.sessionToken) {
+            console.log('[Frontend] Session token received, storing and redirecting...');
+            localStorage.setItem('swell_session', data.sessionToken);
+            
+            toast({
+              title: "Innlogging vellykket",
+              description: "Velkommen til Swell!",
+            });
+            
+            // Clean URL and navigate
+            window.history.replaceState({}, '', window.location.pathname);
+            navigate('/app/leaderboard');
+          }
+        })
+        .catch(error => {
+          console.error('[Frontend] Exchange request failed:', error);
           toast({
-            title: "Innlogging vellykket",
-            description: "Velkommen til Swell!",
+            title: "Innlogging feilet",
+            description: "Kunne ikke fullføre autentisering. Prøv igjen.",
+            variant: "destructive"
           });
           setIsLoggingIn(false);
-          navigate('/app/leaderboard');
-        } else {
-          console.log('[Frontend] No session found via polling');
-          setIsLoggingIn(false);
-        }
-      } catch (error) {
-        console.error('[Frontend] Polling failed:', error);
-        setIsLoggingIn(false);
-      }
-    }, 3000);
-
-    return () => {
-      console.log('[Frontend] Cleaning up polling timeout');
-      clearTimeout(pollTimeout);
-    };
-  }, [isLoggingIn, navigate, toast]);
+          // Clean URL
+          window.history.replaceState({}, '', window.location.pathname);
+        });
+    }
+  }, [navigate, toast]);
 
   const handleHubSpotLogin = () => {
     setAuthError(null);
-    setIsLoggingIn(true);
+    console.log('[Frontend] Starting HubSpot login redirect...');
     
-    const width = 600;
-    const height = 700;
-    const left = window.screen.width / 2 - width / 2;
-    const top = window.screen.height / 2 - height / 2;
-    
-    // Pass frontend URL to edge function so it knows where to redirect back
+    // Redirect directly - no popup
     const frontendUrl = encodeURIComponent(window.location.origin);
     const startUrl = `${EDGE_ORIGIN}/functions/v1/hubspot-auth/start?frontend_url=${frontendUrl}`;
     
-    console.log('[Frontend] Opening OAuth popup with frontend URL:', window.location.origin);
-    
-    const newPopup = window.open(
-      startUrl,
-      'hubspot-oauth',
-      `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
-    );
-
-    if (!newPopup) {
-      // Popup was blocked - fallback to redirect flow
-      setAuthError("Popup ble blokkert. Omdirigerer...");
-      toast({
-        title: "Popup blokkert",
-        description: "Omdirigerer til innlogging i samme vindu...",
-      });
-      
-      setTimeout(() => {
-        window.location.href = startUrl;
-      }, 1000);
-      return;
-    }
-
-    setPopup(newPopup);
-
-    // Popup will send postMessage with session_key when auth completes
-    // The useEffect listener will handle the exchange and navigation
+    window.location.href = startUrl;
   };
+  
   const features = [
     {
       icon: Trophy,
