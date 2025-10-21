@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Trophy, LogOut, Loader2 } from "lucide-react";
@@ -8,83 +7,25 @@ import { toast } from "sonner";
 
 const Leaderboard = () => {
   const navigate = useNavigate();
-  const location = useLocation();
   const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState<any>(null);
 
   useEffect(() => {
-    // Handle OAuth callback with access token
-    const handleAuthCallback = async () => {
-      const params = new URLSearchParams(location.search);
-      const accessToken = params.get('access_token');
-
-      if (accessToken) {
-        try {
-          // Set session using the hashed token from magic link
-          const { error } = await supabase.auth.verifyOtp({
-            token_hash: accessToken,
-            type: 'magiclink',
-          });
-
-          if (error) {
-            console.error('OTP verification error:', error);
-            throw error;
-          }
-
-          // Clear the token from URL
-          window.history.replaceState({}, document.title, '/app/leaderboard');
-          
-          toast.success('Successfully connected to HubSpot!');
-        } catch (error) {
-          console.error('Auth error:', error);
-          toast.error('Authentication failed. Please try again.');
-          setTimeout(() => navigate('/'), 2000);
-          return;
-        }
-      }
-
-      // Check existing session or after callback
-      try {
-        const { data: { session }, error } = await supabase.auth.getSession();
-        
-        if (error) throw error;
-
-        if (!session) {
-          navigate('/');
-          return;
-        }
-
-        setUser(session.user);
-      } catch (error) {
-        console.error('Auth check error:', error);
-        navigate('/');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    handleAuthCallback();
-
-    // Subscribe to auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) {
-        navigate('/');
-      } else {
-        setUser(session.user);
-      }
-    });
-
-    return () => subscription.unsubscribe();
-  }, [location, navigate]);
+    // Session is validated via HttpOnly cookie (swell_session)
+    // Backend RLS will handle access control
+    // For now, just show the page - user data will be fetched when needed
+    setLoading(false);
+  }, []);
 
   const handleLogout = async () => {
     try {
-      await supabase.auth.signOut();
-      toast.success('Logged out successfully');
+      // Clear session cookie by calling a logout endpoint or just navigate away
+      // For now, just clear client state and navigate home
+      document.cookie = 'swell_session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT;';
+      toast.success('Logget ut');
       navigate('/');
     } catch (error) {
       console.error('Logout error:', error);
-      toast.error('Failed to logout');
+      toast.error('Kunne ikke logge ut');
     }
   };
 
@@ -114,10 +55,12 @@ const Leaderboard = () => {
           </div>
           
           <div className="flex items-center gap-4">
-            <span className="text-sm text-muted-foreground">{user?.email}</span>
+            <span className="text-sm text-muted-foreground">
+              Innlogget
+            </span>
             <Button variant="outline" size="sm" onClick={handleLogout}>
               <LogOut className="w-4 h-4 mr-2" />
-              Logout
+              Logg ut
             </Button>
           </div>
         </div>

@@ -1,44 +1,48 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Trophy, Zap, Target, TrendingUp, Users, Settings } from "lucide-react";
+import { Trophy, Zap, Target, TrendingUp, Users, Settings, AlertCircle } from "lucide-react";
 import { motion } from "framer-motion";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 const Index = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
-    const handleAuthMessage = async (event: MessageEvent) => {
-      // Verify origin for security
-      if (event.origin !== window.location.origin) return;
+    const handleAuthMessage = (event: MessageEvent) => {
+      // Accept messages from our edge function (deployed on supabase.co)
+      // and from our own origin for testing
+      const allowedOrigins = [
+        window.location.origin,
+        'https://ffbdcvvxiklzgfwrhbta.supabase.co',
+      ];
+      
+      if (!allowedOrigins.some(origin => event.origin.startsWith(origin))) {
+        console.warn('Rejected message from unauthorized origin:', event.origin);
+        return;
+      }
 
       if (event.data.type === 'hubspot-auth-success') {
+        setAuthError(null);
         toast({
           title: "Innlogging vellykket",
           description: "Du blir omdirigert til leaderboard...",
         });
         
-        // Wait a moment for session to be established
-        setTimeout(async () => {
-          const { data: { session } } = await supabase.auth.getSession();
-          if (session) {
-            navigate('/app/leaderboard');
-          } else {
-            toast({
-              title: "Feil",
-              description: "Kunne ikke opprette sesjon",
-              variant: "destructive",
-            });
-          }
-        }, 1000);
+        // Navigate directly - session is set via HttpOnly cookie
+        setTimeout(() => {
+          navigate('/app/leaderboard');
+        }, 500);
       } else if (event.data.type === 'hubspot-auth-error') {
+        const errorMsg = event.data.error || "En ukjent feil oppstod";
+        setAuthError(errorMsg);
         toast({
           title: "Innlogging feilet",
-          description: event.data.error || "En ukjent feil oppstod",
+          description: errorMsg,
           variant: "destructive",
         });
       }
@@ -49,6 +53,8 @@ const Index = () => {
   }, [navigate, toast]);
 
   const handleHubSpotLogin = () => {
+    setAuthError(null); // Clear any previous errors
+    
     const width = 600;
     const height = 700;
     const left = window.screen.width / 2 - width / 2;
@@ -60,12 +66,17 @@ const Index = () => {
       `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
     );
 
-    if (!popup) {
+    if (!popup || popup.closed) {
+      // Popup was blocked - fallback to redirect flow
+      setAuthError("Popup ble blokkert. Prøver redirect-flow...");
       toast({
         title: "Popup blokkert",
-        description: "Vennligst tillat popup-vinduer for denne siden",
-        variant: "destructive",
+        description: "Omdirigerer til innlogging i samme vindu...",
       });
+      
+      setTimeout(() => {
+        window.location.href = 'https://ffbdcvvxiklzgfwrhbta.supabase.co/functions/v1/hubspot-auth/start';
+      }, 1000);
     }
   };
   const features = [
@@ -155,13 +166,27 @@ const Index = () => {
             engasjerende konkurranse med sanntids leaderboards og poengberegning.
           </p>
 
+          {authError && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="max-w-md mx-auto mb-6"
+            >
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Innlogging feilet</AlertTitle>
+                <AlertDescription>{authError}</AlertDescription>
+              </Alert>
+            </motion.div>
+          )}
+
           <div className="flex flex-wrap gap-4 justify-center">
             <Button 
               size="lg" 
               className="bg-gradient-to-r from-primary to-primary-glow hover:opacity-90 transition-opacity shadow-lg"
               onClick={handleHubSpotLogin}
             >
-              Logg inn med HubSpot
+              {authError ? 'Prøv igjen' : 'Logg inn med HubSpot'}
             </Button>
             <Button size="lg" variant="outline">
               Les dokumentasjon
