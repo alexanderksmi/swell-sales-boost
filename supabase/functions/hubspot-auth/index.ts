@@ -389,7 +389,8 @@ Deno.serve(async (req) => {
         status: 200,
         headers: {
           ...corsHeaders,
-          'Content-Type': 'text/html',
+          'Content-Type': 'text/html; charset=utf-8',
+          'X-Content-Type-Options': 'nosniff',
         }
       });
     }
@@ -462,7 +463,8 @@ Deno.serve(async (req) => {
       status: 500,
       headers: {
         ...corsHeaders,
-        'Content-Type': 'text/html',
+        'Content-Type': 'text/html; charset=utf-8',
+        'X-Content-Type-Options': 'nosniff',
       },
     });
   }
