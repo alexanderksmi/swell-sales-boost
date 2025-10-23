@@ -17,8 +17,6 @@ const SCOPES = [
   'crm.objects.deals.read',
   'crm.objects.owners.read',
   'crm.schemas.deals.read',
-  'settings.users.read',
-  'settings.users.teams.read',
   'oauth',
 ].join(' ');
 
@@ -313,44 +311,15 @@ Deno.serve(async (req) => {
         );
       }
 
-      console.log('Session saved, sending postMessage to parent window');
+      console.log('Session saved, redirecting to frontend with session_key');
 
-      // Get PUBLIC_APP_URL for postMessage target
-      const publicAppUrl = Deno.env.get('PUBLIC_APP_URL') || 'https://swell-sales-boost.lovable.app';
-      
-      // Return minimal HTML that sends postMessage and closes immediately
-      const html = `
-        <!DOCTYPE html>
-        <html>
-        <head><title>Redirecting...</title></head>
-        <body>
-          <script>
-            const publicAppUrl = '${publicAppUrl}';
-            const targetOrigin = new URL(publicAppUrl).origin;
-            
-            if (window.opener) {
-              window.opener.postMessage({ 
-                type: 'hubspot-auth-success', 
-                source: 'hubspot',
-                token: '${sessionToken}',
-                tenantId: '${tenant.id}',
-                userId: '${user.id}'
-              }, targetOrigin);
-              window.close();
-            } else {
-              window.location.href = publicAppUrl + '/?session_key=${sessionKey}';
-            }
-          </script>
-        </body>
-        </html>
-      `;
-
-      return new Response(html, {
-        status: 200,
+      // Redirect popup to frontend with session_key
+      return new Response(null, {
+        status: 302,
         headers: {
           ...corsHeaders,
-          'Content-Type': 'text/html',
-        },
+          'Location': `${frontendUrl}/?session_key=${sessionKey}`
+        }
       });
     }
 
@@ -372,30 +341,27 @@ Deno.serve(async (req) => {
 
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     
-    // Get PUBLIC_APP_URL for postMessage target
-    const publicAppUrl = Deno.env.get('PUBLIC_APP_URL') || 'https://swell-sales-boost.lovable.app';
-    
-    // Return minimal HTML that sends error message and closes popup
+    // Return HTML that sends error message and closes popup
     const html = `
       <!DOCTYPE html>
       <html>
-      <head><title>Error</title></head>
+      <head>
+        <title>Authentication Error</title>
+      </head>
       <body>
         <script>
-          const publicAppUrl = '${publicAppUrl}';
-          const targetOrigin = new URL(publicAppUrl).origin;
-          
-          if (window.opener) {
+          if (window.opener && window.opener.location) {
             window.opener.postMessage({ 
               type: 'hubspot-auth-error', 
               source: 'hubspot',
               error: '${errorMessage.replace(/'/g, "\\'")}'
-            }, targetOrigin);
+            }, window.opener.location.origin);
             window.close();
           } else {
-            window.location.href = publicAppUrl + '/?error=${encodeURIComponent(errorMessage)}';
+            document.body.innerHTML = '<p>Error: ${errorMessage.replace(/'/g, "\\'")}</p>';
           }
         </script>
+        <p>An error occurred during authentication...</p>
       </body>
       </html>
     `;

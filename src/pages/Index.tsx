@@ -2,122 +2,153 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Trophy, Zap, Target, TrendingUp, Users, Settings, AlertCircle, Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { checkSession } from "@/lib/api";
 
 const EDGE_ORIGIN = 'https://ffbdcvvxiklzgfwrhbta.supabase.co';
-const LOGIN_TIMEOUT_MS = 120000; // 120 seconds
 
 const Index = () => {
   const navigate = useNavigate();
-  const popupRef = useRef<Window | null>(null);
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const [checkingSession, setCheckingSession] = useState(true);
+  const { toast } = useToast();
+  const [authError, setAuthError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
-  const [loginError, setLoginError] = useState<string | null>(null);
+  const [popup, setPopup] = useState<Window | null>(null);
+  const [checkingSession, setCheckingSession] = useState(true);
 
   // Check if user is already logged in
   useEffect(() => {
     const checkExistingSession = async () => {
-      const existingToken = localStorage.getItem('swell_token');
-      if (existingToken) {
-        console.log('[Index] Existing token found, redirecting to leaderboard');
-        navigate('/app/leaderboard');
-        return;
+      try {
+        const sessionData = await checkSession();
+        if (sessionData.authenticated) {
+          console.log('[Index] Existing session found, redirecting to leaderboard');
+          navigate('/app/leaderboard');
+        }
+      } catch (error) {
+        console.log('[Index] No existing session');
+      } finally {
+        setCheckingSession(false);
       }
-      setCheckingSession(false);
     };
 
     checkExistingSession();
   }, [navigate]);
 
-  // Listen for custom events from App.tsx message handler
+  const handleSuccess = () => {
+    setIsLoggingIn(false);
+    setAuthError(null);
+    if (popup && !popup.closed) {
+      popup.close();
+    }
+    toast({
+      title: "Innlogging vellykket",
+      description: "Du blir omdirigert til leaderboard...",
+    });
+    setTimeout(() => {
+      navigate('/app/leaderboard');
+    }, 500);
+  };
+
+  // Check for session_key in URL on mount
   useEffect(() => {
-    const handleAuthSuccess = () => {
-      console.debug('[Index] Auth success event received');
-      setIsLoggingIn(false);
-      setLoginError(null);
-      // Clear timeout
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-        timeoutRef.current = null;
-      }
-      // Close popup
-      try {
-        popupRef.current?.close();
-      } catch (e) {
-        console.debug('[Index] Could not close popup:', e);
-      }
-    };
+    const urlParams = new URLSearchParams(window.location.search);
+    const sessionKey = urlParams.get('session_key');
+    
+    if (sessionKey) {
+      console.log('[Frontend] Found session_key in URL, exchanging for token');
+      setIsLoggingIn(true);
+      
+      // Exchange session key for actual token
+      const exchangeUrl = new URL(`${EDGE_ORIGIN}/functions/v1/api-exchange-session`);
+      exchangeUrl.searchParams.set('session_key', sessionKey);
+      
+      fetch(exchangeUrl.toString())
+        .then(response => response.json())
+        .then(data => {
+          if (data.error) {
+            console.error('[Frontend] Failed to exchange session:', data.error);
+            toast({
+              title: "Innlogging feilet",
+              description: "Kunne ikke fullføre autentisering. Prøv igjen.",
+              variant: "destructive"
+            });
+            setIsLoggingIn(false);
+            window.history.replaceState({}, document.title, window.location.pathname);
+            return;
+          }
 
-    const handleAuthError = (event: Event) => {
-      const customEvent = event as CustomEvent<{ error: string }>;
-      console.debug('[Index] Auth error event received:', customEvent.detail?.error);
-      setIsLoggingIn(false);
-      setLoginError(customEvent.detail?.error || 'Innlogging feilet');
-      // Clear timeout
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-        timeoutRef.current = null;
-      }
-      // Close popup
-      try {
-        popupRef.current?.close();
-      } catch (e) {
-        console.debug('[Index] Could not close popup:', e);
-      }
-    };
-
-    window.addEventListener('hubspot-auth-success', handleAuthSuccess);
-    window.addEventListener('hubspot-auth-error', handleAuthError as EventListener);
-
-    return () => {
-      window.removeEventListener('hubspot-auth-success', handleAuthSuccess);
-      window.removeEventListener('hubspot-auth-error', handleAuthError as EventListener);
-    };
-  }, []);
+          if (data.sessionToken) {
+            console.log('[Frontend] Session token received, storing in localStorage');
+            localStorage.setItem('swell_session', data.sessionToken);
+            
+            // Clean up URL
+            window.history.replaceState({}, document.title, window.location.pathname);
+            
+            toast({
+              title: "Innlogging vellykket",
+              description: "Velkommen til Swell!",
+            });
+            
+            // Navigate to leaderboard
+            navigate('/app/leaderboard');
+          }
+        })
+        .catch(error => {
+          console.error('[Frontend] Exchange request failed:', error);
+          toast({
+            title: "Innlogging feilet",
+            description: "Kunne ikke fullføre autentisering. Prøv igjen.",
+            variant: "destructive"
+          });
+          setIsLoggingIn(false);
+          window.history.replaceState({}, document.title, window.location.pathname);
+        });
+    }
+  }, [navigate, toast]);
 
   const handleHubSpotLogin = () => {
+    setAuthError(null);
     setIsLoggingIn(true);
-    setLoginError(null);
+    
+    const width = 600;
+    const height = 700;
+    const left = window.screen.width / 2 - width / 2;
+    const top = window.screen.height / 2 - height / 2;
+    
+    // Pass frontend URL to edge function so it knows where to redirect back
+    const frontendUrl = encodeURIComponent(window.location.origin);
+    const startUrl = `${EDGE_ORIGIN}/functions/v1/hubspot-auth/start?frontend_url=${frontendUrl}`;
+    
+    console.log('[Frontend] Opening OAuth popup with frontend URL:', window.location.origin);
+    
+    const newPopup = window.open(
+      startUrl,
+      'hubspot-oauth',
+      `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
+    );
 
-    // Open popup synchronously (important for popup blockers)
-    const popup = window.open('about:blank', 'hubspot-oauth', 'width=600,height=720');
-    popupRef.current = popup;
-
-    if (!popup) {
-      // Popup blocked - fallback to full redirect
-      console.log('[Index] Popup blocked, falling back to full redirect');
-      window.location.href = `${EDGE_ORIGIN}/functions/v1/hubspot-auth/start`;
+    if (!newPopup) {
+      // Popup was blocked - fallback to redirect flow
+      setAuthError("Popup ble blokkert. Omdirigerer...");
+      toast({
+        title: "Popup blokkert",
+        description: "Omdirigerer til innlogging i samme vindu...",
+      });
+      
+      setTimeout(() => {
+        window.location.href = startUrl;
+      }, 1000);
       return;
     }
 
-    // Set URL after opening blank popup
-    popup.location.href = `${EDGE_ORIGIN}/functions/v1/hubspot-auth/start`;
+    setPopup(newPopup);
 
-    // Set 120s timeout
-    timeoutRef.current = setTimeout(() => {
-      console.warn('[Index] Login timeout - no response after 120s');
-      setIsLoggingIn(false);
-      setLoginError('Innlogging tok for lang tid. Vennligst prøv igjen.');
-      try {
-        popupRef.current?.close();
-      } catch (e) {
-        console.debug('[Index] Could not close popup on timeout:', e);
-      }
-      popupRef.current = null;
-    }, LOGIN_TIMEOUT_MS);
+    // No need for polling anymore - the popup will redirect back to this page with session_key
+    // The useEffect above will handle the rest
   };
-
-  // Cleanup timeout on unmount
-  useEffect(() => {
-    return () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
-    };
-  }, []);
   const features = [
     {
       icon: Trophy,
@@ -217,12 +248,18 @@ const Index = () => {
             engasjerende konkurranse med sanntids leaderboards og poengberegning.
           </p>
 
-          {loginError && (
-            <Alert variant="destructive" className="mb-6 max-w-md mx-auto">
-              <AlertCircle className="h-4 w-4" />
-              <AlertTitle>Feil</AlertTitle>
-              <AlertDescription>{loginError}</AlertDescription>
-            </Alert>
+          {authError && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="max-w-md mx-auto mb-6"
+            >
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Innlogging feilet</AlertTitle>
+                <AlertDescription>{authError}</AlertDescription>
+              </Alert>
+            </motion.div>
           )}
 
           <div className="flex flex-wrap gap-4 justify-center">
@@ -234,9 +271,11 @@ const Index = () => {
             >
               {isLoggingIn ? (
                 <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   Logger inn...
                 </>
+              ) : authError ? (
+                'Prøv igjen'
               ) : (
                 'Logg inn med HubSpot'
               )}
