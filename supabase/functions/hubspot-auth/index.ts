@@ -35,24 +35,28 @@ Deno.serve(async (req) => {
   try {
     // Route: /start - Initiate OAuth flow
     if (path.includes('/start')) {
-      // Get frontend URL from query param or referer
+      // Get frontend URL and state from query params
       const frontendUrl = url.searchParams.get('frontend_url') || req.headers.get('referer') || '';
       const cleanFrontendUrl = frontendUrl ? new URL(frontendUrl).origin : '';
+      const clientState = url.searchParams.get('state') || '';
       
       console.log('Starting OAuth with frontend URL:', cleanFrontendUrl);
+      console.log('Client state:', clientState.substring(0, 8) + '...');
       
       const hubspotAuthUrl = new URL('https://app.hubspot.com/oauth/authorize');
       hubspotAuthUrl.searchParams.set('client_id', HUBSPOT_CLIENT_ID!);
       hubspotAuthUrl.searchParams.set('redirect_uri', HUBSPOT_REDIRECT_URI!);
       hubspotAuthUrl.searchParams.set('scope', SCOPES);
       
-      // Pass frontend URL through OAuth state
-      if (cleanFrontendUrl) {
-        const state = btoa(JSON.stringify({ frontend_url: cleanFrontendUrl }));
-        hubspotAuthUrl.searchParams.set('state', state);
-      }
+      // Pass frontend URL and client state through OAuth state parameter
+      const stateData = {
+        frontend_url: cleanFrontendUrl,
+        client_state: clientState
+      };
+      const state = btoa(JSON.stringify(stateData));
+      hubspotAuthUrl.searchParams.set('state', state);
       
-      console.log('Redirecting to HubSpot OAuth:', hubspotAuthUrl.toString());
+      console.log('Redirecting to HubSpot OAuth');
       
       return new Response(null, {
         status: 302,
@@ -68,13 +72,16 @@ Deno.serve(async (req) => {
       const code = url.searchParams.get('code');
       const state = url.searchParams.get('state');
       
-      // Extract frontend URL from state
+      // Extract frontend URL and client state from OAuth state
       let frontendUrl = '';
+      let clientState = '';
       if (state) {
         try {
           const stateData = JSON.parse(atob(state));
           frontendUrl = stateData.frontend_url || '';
+          clientState = stateData.client_state || '';
           console.log('Frontend URL from state:', frontendUrl);
+          console.log('Client state from OAuth:', clientState.substring(0, 8) + '...');
         } catch (e) {
           console.error('Failed to parse state:', e);
         }
@@ -315,7 +322,7 @@ Deno.serve(async (req) => {
 
       console.log('Session saved, sending postMessage and closing popup');
 
-      // Send postMessage to frontend with session_key and close popup
+      // Send postMessage to frontend with session_key, state, and close popup
       const targetOrigin = frontendUrl || PUBLIC_APP_URL;
       const html = `
         <!DOCTYPE html>
@@ -329,7 +336,8 @@ Deno.serve(async (req) => {
               window.opener.postMessage({ 
                 type: 'hubspot-auth-success', 
                 source: 'hubspot',
-                sessionKey: '${sessionKey}'
+                sessionKey: '${sessionKey}',
+                state: '${clientState}'
               }, '${targetOrigin}');
               setTimeout(() => {
                 window.close();

@@ -19,22 +19,37 @@ const App = () => {
   // Global message listener for OAuth errors from edge functions
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
-      // Validate origin is from edge function
-      if (event.origin !== EDGE_ORIGIN) {
-        console.log('[App] Ignoring message from invalid origin:', event.origin);
+      // Only validate source - state validation will happen next
+      if (event.data.source !== 'hubspot') {
+        console.log('[App] Ignoring message from non-hubspot source');
         return;
       }
 
-      console.log('[App] Received message from edge:', event.data);
+      // Validate state parameter for CSRF protection
+      const expectedState = sessionStorage.getItem('swell_oauth_state');
+      if (!expectedState || event.data.state !== expectedState) {
+        console.error('[App] State mismatch - potential CSRF attack');
+        toast({
+          title: "Sikkerhetsfeil",
+          description: "OAuth state validering feilet. Prøv igjen.",
+          variant: "destructive"
+        });
+        return;
+      }
 
-      if (event.data.type === 'hubspot-auth-success' && event.data.source === 'hubspot') {
+      console.log('[App] State validated, processing message:', event.data.type);
+
+      // Clear state after successful validation
+      sessionStorage.removeItem('swell_oauth_state');
+
+      if (event.data.type === 'hubspot-auth-success') {
         // Handle success - redirect to callback with session_key
         const sessionKey = event.data.sessionKey;
         if (sessionKey) {
           console.log('[App] Received session key via postMessage');
           window.location.href = `/?session_key=${sessionKey}`;
         }
-      } else if (event.data.type === 'hubspot-auth-error' && event.data.source === 'hubspot') {
+      } else if (event.data.type === 'hubspot-auth-error') {
         toast({
           title: "Innlogging feilet",
           description: event.data.error || "En feil oppstod under autentisering",
