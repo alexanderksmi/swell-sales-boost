@@ -27,7 +27,14 @@ const App = () => {
 
       console.log('[App] Received message from edge:', event.data);
 
-      if (event.data.type === 'hubspot-auth-error' && event.data.source === 'hubspot') {
+      if (event.data.type === 'hubspot-auth-success' && event.data.source === 'hubspot') {
+        // Handle success - redirect to callback with session_key
+        const sessionKey = event.data.sessionKey;
+        if (sessionKey) {
+          console.log('[App] Received session key via postMessage');
+          window.location.href = `/?session_key=${sessionKey}`;
+        }
+      } else if (event.data.type === 'hubspot-auth-error' && event.data.source === 'hubspot') {
         toast({
           title: "Innlogging feilet",
           description: event.data.error || "En feil oppstod under autentisering",

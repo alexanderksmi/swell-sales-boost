@@ -313,15 +313,40 @@ Deno.serve(async (req) => {
         );
       }
 
-      console.log('Session saved, redirecting to frontend with session_key');
+      console.log('Session saved, sending postMessage and closing popup');
 
-      // Redirect popup to frontend with session_key using PUBLIC_APP_URL
-      const redirectUrl = frontendUrl || PUBLIC_APP_URL;
-      return new Response(null, {
-        status: 302,
+      // Send postMessage to frontend with session_key and close popup
+      const targetOrigin = frontendUrl || PUBLIC_APP_URL;
+      const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Authentication Success</title>
+        </head>
+        <body>
+          <script>
+            if (window.opener && window.opener.location) {
+              window.opener.postMessage({ 
+                type: 'hubspot-auth-success', 
+                source: 'hubspot',
+                sessionKey: '${sessionKey}'
+              }, '${targetOrigin}');
+              setTimeout(() => {
+                window.close();
+              }, 50);
+            } else {
+              window.location.href = '${targetOrigin}/?session_key=${sessionKey}';
+            }
+          </script>
+        </body>
+        </html>
+      `;
+
+      return new Response(html, {
+        status: 200,
         headers: {
           ...corsHeaders,
-          'Location': `${redirectUrl}/?session_key=${sessionKey}`
+          'Content-Type': 'text/html',
         }
       });
     }
@@ -344,7 +369,7 @@ Deno.serve(async (req) => {
 
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     
-    // Return HTML that sends error message and closes popup
+    // Return HTML that sends error message via postMessage and closes popup
     const html = `
       <!DOCTYPE html>
       <html>
@@ -359,12 +384,13 @@ Deno.serve(async (req) => {
               source: 'hubspot',
               error: '${errorMessage.replace(/'/g, "\\'")}'
             }, '${PUBLIC_APP_URL}');
-            window.close();
+            setTimeout(() => {
+              window.close();
+            }, 50);
           } else {
             document.body.innerHTML = '<p>Error: ${errorMessage.replace(/'/g, "\\'")}</p>';
           }
         </script>
-        <p>An error occurred during authentication...</p>
       </body>
       </html>
     `;
