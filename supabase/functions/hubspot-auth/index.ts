@@ -324,6 +324,8 @@ Deno.serve(async (req) => {
 
       // Send postMessage to frontend with session_key, state, and close popup
       const targetOrigin = frontendUrl || PUBLIC_APP_URL;
+      console.log('Sending postMessage to:', targetOrigin);
+      
       const html = `
         <!DOCTYPE html>
         <html>
@@ -333,12 +335,14 @@ Deno.serve(async (req) => {
         <body>
           <script>
             if (window.opener && window.opener.location) {
+              console.log('Sending postMessage to opener');
               window.opener.postMessage({ 
                 type: 'hubspot-auth-success', 
                 source: 'hubspot',
                 sessionKey: '${sessionKey}',
                 state: '${clientState}'
               }, '${targetOrigin}');
+              console.log('postMessage sent, closing in 50ms');
               setTimeout(() => {
                 window.close();
               }, 50);

@@ -19,6 +19,9 @@ const App = () => {
   // Global message listener for OAuth messages from edge functions
   useEffect(() => {
     const handleMessage = async (event: MessageEvent) => {
+      // Debug log before validation
+      console.debug('oauth msg', event.origin, event.data?.type, !!event.data?.sessionKey, event.data?.state);
+      
       // Only validate source - state validation will happen next
       if (event.data.source !== 'hubspot') {
         console.log('[App] Ignoring message from non-hubspot source');
