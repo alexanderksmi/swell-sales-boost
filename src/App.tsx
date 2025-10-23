@@ -16,9 +16,9 @@ const EDGE_ORIGIN = 'https://ffbdcvvxiklzgfwrhbta.supabase.co';
 const App = () => {
   const { toast } = useToast();
 
-  // Global message listener for OAuth errors from edge functions
+  // Global message listener for OAuth messages from edge functions
   useEffect(() => {
-    const handleMessage = (event: MessageEvent) => {
+    const handleMessage = async (event: MessageEvent) => {
       // Only validate source - state validation will happen next
       if (event.data.source !== 'hubspot') {
         console.log('[App] Ignoring message from non-hubspot source');
@@ -29,6 +29,14 @@ const App = () => {
       const expectedState = sessionStorage.getItem('swell_oauth_state');
       if (!expectedState || event.data.state !== expectedState) {
         console.error('[App] State mismatch - potential CSRF attack');
+        
+        // Close popup on error
+        try {
+          (window as any).__swellPopup?.close();
+        } catch (e) {
+          console.error('[App] Failed to close popup:', e);
+        }
+        
         toast({
           title: "Sikkerhetsfeil",
           description: "OAuth state validering feilet. Prøv igjen.",
@@ -43,13 +51,76 @@ const App = () => {
       sessionStorage.removeItem('swell_oauth_state');
 
       if (event.data.type === 'hubspot-auth-success') {
-        // Handle success - redirect to callback with session_key
         const sessionKey = event.data.sessionKey;
-        if (sessionKey) {
-          console.log('[App] Received session key via postMessage');
-          window.location.href = `/?session_key=${sessionKey}`;
+        if (!sessionKey) {
+          console.error('[App] No session key in success message');
+          
+          // Close popup on error
+          try {
+            (window as any).__swellPopup?.close();
+          } catch (e) {
+            console.error('[App] Failed to close popup:', e);
+          }
+          
+          toast({
+            title: "Innlogging feilet",
+            description: "Ingen session key mottatt. Prøv igjen.",
+            variant: "destructive"
+          });
+          return;
+        }
+
+        try {
+          // Exchange session key for JWT token
+          console.log('[App] Exchanging session key for token');
+          const exchangeUrl = new URL('https://ffbdcvvxiklzgfwrhbta.supabase.co/functions/v1/api-exchange-session');
+          exchangeUrl.searchParams.set('session_key', sessionKey);
+          
+          const response = await fetch(exchangeUrl.toString());
+          const data = await response.json();
+          
+          if (data.error || !data.sessionToken) {
+            throw new Error(data.error || 'No session token received');
+          }
+
+          // Store JWT token in localStorage
+          console.log('[App] Storing token and navigating to leaderboard');
+          localStorage.setItem('swell_session', data.sessionToken);
+          
+          // Close popup
+          try {
+            (window as any).__swellPopup?.close();
+          } catch (e) {
+            console.error('[App] Failed to close popup:', e);
+          }
+          
+          // Navigate to leaderboard
+          window.location.href = '/app/leaderboard';
+          
+        } catch (error) {
+          console.error('[App] Failed to exchange session:', error);
+          
+          // Close popup on error
+          try {
+            (window as any).__swellPopup?.close();
+          } catch (e) {
+            console.error('[App] Failed to close popup:', e);
+          }
+          
+          toast({
+            title: "Innlogging feilet",
+            description: "Kunne ikke fullføre autentisering. Prøv igjen.",
+            variant: "destructive"
+          });
         }
       } else if (event.data.type === 'hubspot-auth-error') {
+        // Close popup on error
+        try {
+          (window as any).__swellPopup?.close();
+        } catch (e) {
+          console.error('[App] Failed to close popup:', e);
+        }
+        
         toast({
           title: "Innlogging feilet",
           description: event.data.error || "En feil oppstod under autentisering",
