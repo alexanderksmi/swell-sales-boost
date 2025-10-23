@@ -107,27 +107,23 @@ const Index = () => {
   }, [navigate, toast]);
 
   const handleHubSpotLogin = () => {
-    setIsLoggingIn(true);
-    
     const width = 600;
     const height = 700;
     const left = window.screen.width / 2 - width / 2;
     const top = window.screen.height / 2 - height / 2;
     
-    // Pass frontend URL to edge function so it knows where to redirect back
-    const frontendUrl = encodeURIComponent(window.location.origin);
-    const startUrl = `${EDGE_ORIGIN}/functions/v1/hubspot-auth/start?frontend_url=${frontendUrl}`;
-    
-    console.log('[Frontend] Opening OAuth popup with frontend URL:', window.location.origin);
-    
+    // Open popup synchronously BEFORE any async operations (prevents popup blocking)
     const newPopup = window.open(
-      startUrl,
+      'about:blank',
       'hubspot-oauth',
       `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
     );
 
     if (!newPopup) {
-      // Popup was blocked - fallback to redirect flow
+      // Popup was blocked - fallback to full redirect
+      const frontendUrl = encodeURIComponent(window.location.origin);
+      const startUrl = `${EDGE_ORIGIN}/functions/v1/hubspot-auth/start?frontend_url=${frontendUrl}`;
+      
       toast({
         title: "Popup blokkert",
         description: "Omdirigerer til innlogging i samme vindu...",
@@ -139,10 +135,26 @@ const Index = () => {
       return;
     }
 
+    // Store popup reference globally
+    (window as any).__swellPopup = newPopup;
     setPopup(newPopup);
+    setIsLoggingIn(true);
 
-    // No need for polling anymore - the popup will redirect back to this page with session_key
-    // The useEffect above will handle the rest
+    // Set URL after opening (Safari requirement)
+    const frontendUrl = encodeURIComponent(window.location.origin);
+    const startUrl = `${EDGE_ORIGIN}/functions/v1/hubspot-auth/start?frontend_url=${frontendUrl}`;
+    
+    console.log('[Frontend] Opening OAuth popup with frontend URL:', window.location.origin);
+    newPopup.location.href = startUrl;
+
+    // Monitor popup closure to reset loading state
+    const checkPopup = setInterval(() => {
+      if (newPopup.closed) {
+        clearInterval(checkPopup);
+        setIsLoggingIn(false);
+        (window as any).__swellPopup = null;
+      }
+    }, 500);
   };
   const features = [
     {
