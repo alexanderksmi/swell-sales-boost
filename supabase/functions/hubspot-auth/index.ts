@@ -11,6 +11,7 @@ const HUBSPOT_CLIENT_SECRET = Deno.env.get('HUBSPOT_CLIENT_SECRET');
 const HUBSPOT_REDIRECT_URI = Deno.env.get('HUBSPOT_REDIRECT_URI');
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+const PUBLIC_APP_URL = Deno.env.get('PUBLIC_APP_URL') || 'https://swell-sales-boost.lovable.app';
 
 // OAuth scopes required for HubSpot integration
 const SCOPES = [
@@ -314,12 +315,13 @@ Deno.serve(async (req) => {
 
       console.log('Session saved, redirecting to frontend with session_key');
 
-      // Redirect popup to frontend with session_key
+      // Redirect popup to frontend with session_key using PUBLIC_APP_URL
+      const redirectUrl = frontendUrl || PUBLIC_APP_URL;
       return new Response(null, {
         status: 302,
         headers: {
           ...corsHeaders,
-          'Location': `${frontendUrl}/?session_key=${sessionKey}`
+          'Location': `${redirectUrl}/?session_key=${sessionKey}`
         }
       });
     }
@@ -356,7 +358,7 @@ Deno.serve(async (req) => {
               type: 'hubspot-auth-error', 
               source: 'hubspot',
               error: '${errorMessage.replace(/'/g, "\\'")}'
-            }, window.opener.location.origin);
+            }, '${PUBLIC_APP_URL}');
             window.close();
           } else {
             document.body.innerHTML = '<p>Error: ${errorMessage.replace(/'/g, "\\'")}</p>';

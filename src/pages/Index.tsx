@@ -18,6 +18,32 @@ const Index = () => {
   const [popup, setPopup] = useState<Window | null>(null);
   const [checkingSession, setCheckingSession] = useState(true);
 
+  // Listen for postMessage from OAuth popup (for errors)
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      // Validate origin is from edge function
+      if (event.origin !== EDGE_ORIGIN) {
+        console.log('[Frontend] Ignoring message from invalid origin:', event.origin);
+        return;
+      }
+
+      console.log('[Frontend] Received message from edge:', event.data);
+
+      if (event.data.type === 'hubspot-auth-error' && event.data.source === 'hubspot') {
+        setAuthError(event.data.error || 'An error occurred during authentication');
+        setIsLoggingIn(false);
+        toast({
+          title: "Innlogging feilet",
+          description: event.data.error || "En feil oppstod under autentisering",
+          variant: "destructive"
+        });
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [toast]);
+
   // Check if user is already logged in
   useEffect(() => {
     const checkExistingSession = async () => {
@@ -35,7 +61,7 @@ const Index = () => {
     };
 
     checkExistingSession();
-  }, [navigate]);
+  }, [navigate, toast]);
 
   const handleSuccess = () => {
     setIsLoggingIn(false);
