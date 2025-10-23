@@ -324,7 +324,11 @@ Deno.serve(async (req) => {
       console.log('Session saved, sending postMessage and closing popup');
 
       // Send postMessage to frontend with session_key, state, and close popup
-      const fallbackOrigin = frontendUrl || PUBLIC_APP_URL;
+      // Extract only origin from PUBLIC_APP_URL (no path)
+      const publicAppOrigin = new URL(PUBLIC_APP_URL).origin;
+      const fallbackOrigin = frontendUrl || publicAppOrigin;
+      console.log('fallbackOrigin (should be prod or preview origin):', fallbackOrigin);
+      
       const allowedOrigins = ALLOWED_APP_ORIGINS.split(',').map(o => o.trim()).filter(Boolean);
       console.log('Allowed origins:', allowedOrigins);
       
@@ -402,6 +406,10 @@ Deno.serve(async (req) => {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     const allowedOrigins = ALLOWED_APP_ORIGINS.split(',').map(o => o.trim()).filter(Boolean);
     
+    // Extract only origin from PUBLIC_APP_URL (no path)
+    const publicAppOrigin = new URL(PUBLIC_APP_URL).origin;
+    console.log('Error fallbackOrigin:', publicAppOrigin);
+    
     // Return HTML that sends error message via postMessage and closes popup
     const html = `
       <!DOCTYPE html>
@@ -413,7 +421,7 @@ Deno.serve(async (req) => {
         <script>
           (function() {
             const allowedOrigins = ${JSON.stringify(allowedOrigins)};
-            const fallbackOrigin = '${PUBLIC_APP_URL}';
+            const fallbackOrigin = '${publicAppOrigin}';
             
             if (window.opener && window.opener.location) {
               try {
