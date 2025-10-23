@@ -12,6 +12,7 @@ const HUBSPOT_REDIRECT_URI = Deno.env.get('HUBSPOT_REDIRECT_URI');
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 const PUBLIC_APP_URL = Deno.env.get('PUBLIC_APP_URL') || 'https://swell-sales-boost.lovable.app';
+const ALLOWED_APP_ORIGINS = Deno.env.get('ALLOWED_APP_ORIGINS') || '';
 
 // OAuth scopes required for HubSpot integration
 const SCOPES = [
@@ -323,8 +324,9 @@ Deno.serve(async (req) => {
       console.log('Session saved, sending postMessage and closing popup');
 
       // Send postMessage to frontend with session_key, state, and close popup
-      const targetOrigin = frontendUrl || PUBLIC_APP_URL;
-      console.log('Sending postMessage to:', targetOrigin);
+      const fallbackOrigin = frontendUrl || PUBLIC_APP_URL;
+      const allowedOrigins = ALLOWED_APP_ORIGINS.split(',').map(o => o.trim()).filter(Boolean);
+      console.log('Allowed origins:', allowedOrigins);
       
       const html = `
         <!DOCTYPE html>
@@ -334,21 +336,39 @@ Deno.serve(async (req) => {
         </head>
         <body>
           <script>
-            if (window.opener && window.opener.location) {
-              console.log('Sending postMessage to opener');
-              window.opener.postMessage({ 
-                type: 'hubspot-auth-success', 
-                source: 'hubspot',
-                sessionKey: '${sessionKey}',
-                state: '${clientState}'
-              }, '${targetOrigin}');
-              console.log('postMessage sent, closing in 50ms');
-              setTimeout(() => {
-                window.close();
-              }, 50);
-            } else {
-              window.location.href = '${targetOrigin}/?session_key=${sessionKey}';
-            }
+            (function() {
+              const allowedOrigins = ${JSON.stringify(allowedOrigins)};
+              const fallbackOrigin = '${fallbackOrigin}';
+              
+              if (window.opener && window.opener.location) {
+                try {
+                  const openerOrigin = window.opener.location.origin;
+                  console.log('Opener origin:', openerOrigin);
+                  
+                  // Verify opener origin is in allowed list
+                  const targetOrigin = allowedOrigins.includes(openerOrigin) ? openerOrigin : fallbackOrigin;
+                  console.log('Target origin:', targetOrigin);
+                  
+                  window.opener.postMessage({ 
+                    type: 'hubspot-auth-success', 
+                    source: 'hubspot',
+                    sessionKey: '${sessionKey}',
+                    state: '${clientState}'
+                  }, targetOrigin);
+                  console.log('postMessage sent, closing in 50ms');
+                  
+                  setTimeout(() => {
+                    window.close();
+                  }, 50);
+                } catch (e) {
+                  console.error('Error accessing opener origin:', e);
+                  // Fallback if we can't access opener origin
+                  window.location.href = fallbackOrigin + '/?session_key=${sessionKey}';
+                }
+              } else {
+                window.location.href = fallbackOrigin + '/?session_key=${sessionKey}';
+              }
+            })();
           </script>
         </body>
         </html>
@@ -380,6 +400,7 @@ Deno.serve(async (req) => {
     console.error('HubSpot auth error:', error);
 
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const allowedOrigins = ALLOWED_APP_ORIGINS.split(',').map(o => o.trim()).filter(Boolean);
     
     // Return HTML that sends error message via postMessage and closes popup
     const html = `
@@ -390,18 +411,32 @@ Deno.serve(async (req) => {
       </head>
       <body>
         <script>
-          if (window.opener && window.opener.location) {
-            window.opener.postMessage({ 
-              type: 'hubspot-auth-error', 
-              source: 'hubspot',
-              error: '${errorMessage.replace(/'/g, "\\'")}'
-            }, '${PUBLIC_APP_URL}');
-            setTimeout(() => {
-              window.close();
-            }, 50);
-          } else {
-            document.body.innerHTML = '<p>Error: ${errorMessage.replace(/'/g, "\\'")}</p>';
-          }
+          (function() {
+            const allowedOrigins = ${JSON.stringify(allowedOrigins)};
+            const fallbackOrigin = '${PUBLIC_APP_URL}';
+            
+            if (window.opener && window.opener.location) {
+              try {
+                const openerOrigin = window.opener.location.origin;
+                const targetOrigin = allowedOrigins.includes(openerOrigin) ? openerOrigin : fallbackOrigin;
+                
+                window.opener.postMessage({ 
+                  type: 'hubspot-auth-error', 
+                  source: 'hubspot',
+                  error: '${errorMessage.replace(/'/g, "\\'")}'
+                }, targetOrigin);
+                
+                setTimeout(() => {
+                  window.close();
+                }, 50);
+              } catch (e) {
+                console.error('Error accessing opener origin:', e);
+                document.body.innerHTML = '<p>Error: ${errorMessage.replace(/'/g, "\\'")}</p>';
+              }
+            } else {
+              document.body.innerHTML = '<p>Error: ${errorMessage.replace(/'/g, "\\'")}</p>';
+            }
+          })();
         </script>
       </body>
       </html>
