@@ -1,11 +1,10 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Trophy, Zap, Target, TrendingUp, Users, Settings, AlertCircle, Loader2 } from "lucide-react";
+import { Trophy, Zap, Target, TrendingUp, Users, Settings, Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { checkSession } from "@/lib/api";
 
 const EDGE_ORIGIN = 'https://ffbdcvvxiklzgfwrhbta.supabase.co';
@@ -13,36 +12,9 @@ const EDGE_ORIGIN = 'https://ffbdcvvxiklzgfwrhbta.supabase.co';
 const Index = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const [authError, setAuthError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [popup, setPopup] = useState<Window | null>(null);
   const [checkingSession, setCheckingSession] = useState(true);
-
-  // Listen for postMessage from OAuth popup (for errors)
-  useEffect(() => {
-    const handleMessage = (event: MessageEvent) => {
-      // Validate origin is from edge function
-      if (event.origin !== EDGE_ORIGIN) {
-        console.log('[Frontend] Ignoring message from invalid origin:', event.origin);
-        return;
-      }
-
-      console.log('[Frontend] Received message from edge:', event.data);
-
-      if (event.data.type === 'hubspot-auth-error' && event.data.source === 'hubspot') {
-        setAuthError(event.data.error || 'An error occurred during authentication');
-        setIsLoggingIn(false);
-        toast({
-          title: "Innlogging feilet",
-          description: event.data.error || "En feil oppstod under autentisering",
-          variant: "destructive"
-        });
-      }
-    };
-
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, [toast]);
 
   // Check if user is already logged in
   useEffect(() => {
@@ -65,7 +37,6 @@ const Index = () => {
 
   const handleSuccess = () => {
     setIsLoggingIn(false);
-    setAuthError(null);
     if (popup && !popup.closed) {
       popup.close();
     }
@@ -136,7 +107,6 @@ const Index = () => {
   }, [navigate, toast]);
 
   const handleHubSpotLogin = () => {
-    setAuthError(null);
     setIsLoggingIn(true);
     
     const width = 600;
@@ -158,7 +128,6 @@ const Index = () => {
 
     if (!newPopup) {
       // Popup was blocked - fallback to redirect flow
-      setAuthError("Popup ble blokkert. Omdirigerer...");
       toast({
         title: "Popup blokkert",
         description: "Omdirigerer til innlogging i samme vindu...",
@@ -274,20 +243,6 @@ const Index = () => {
             engasjerende konkurranse med sanntids leaderboards og poengberegning.
           </p>
 
-          {authError && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="max-w-md mx-auto mb-6"
-            >
-              <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertTitle>Innlogging feilet</AlertTitle>
-                <AlertDescription>{authError}</AlertDescription>
-              </Alert>
-            </motion.div>
-          )}
-
           <div className="flex flex-wrap gap-4 justify-center">
             <Button 
               size="lg" 
@@ -300,8 +255,6 @@ const Index = () => {
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   Logger inn...
                 </>
-              ) : authError ? (
-                'Prøv igjen'
               ) : (
                 'Logg inn med HubSpot'
               )}
