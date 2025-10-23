@@ -79,7 +79,15 @@ const App = () => {
           const exchangeUrl = new URL('https://ffbdcvvxiklzgfwrhbta.supabase.co/functions/v1/api-exchange-session');
           exchangeUrl.searchParams.set('session_key', sessionKey);
           
-          const response = await fetch(exchangeUrl.toString());
+          const token = localStorage.getItem('swell_session');
+          const headers: HeadersInit = {
+            'Content-Type': 'application/json',
+          };
+          if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+          }
+          
+          const response = await fetch(exchangeUrl.toString(), { headers });
           const data = await response.json();
           
           if (data.error || !data.sessionToken) {

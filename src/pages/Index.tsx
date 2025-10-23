@@ -62,7 +62,15 @@ const Index = () => {
       const exchangeUrl = new URL(`${EDGE_ORIGIN}/functions/v1/api-exchange-session`);
       exchangeUrl.searchParams.set('session_key', sessionKey);
       
-      fetch(exchangeUrl.toString())
+      const token = localStorage.getItem('swell_session');
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      
+      fetch(exchangeUrl.toString(), { headers })
         .then(response => response.json())
         .then(data => {
           if (data.error) {

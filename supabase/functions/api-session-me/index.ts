@@ -2,7 +2,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.75.1';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-swell-session',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Credentials': 'true',
 };
 
@@ -17,18 +17,12 @@ Deno.serve(async (req) => {
   try {
     console.log('api-session-me: Checking session');
 
-    // Try custom header first (from fetch), then cookie
-    let sessionToken = req.headers.get('x-swell-session');
+    // Read token from Authorization header
+    const authHeader = req.headers.get('authorization');
+    const sessionToken = authHeader?.replace('Bearer ', '');
     
     if (!sessionToken) {
-      // Fall back to cookie
-      const cookies = req.headers.get('cookie') || '';
-      const sessionMatch = cookies.match(/swell_session=([^;]+)/);
-      sessionToken = sessionMatch ? sessionMatch[1] : null;
-    }
-    
-    if (!sessionToken) {
-      console.log('No session token found in header or cookie');
+      console.log('No session token found in Authorization header');
       return new Response(
         JSON.stringify({ authenticated: false }),
         {

@@ -15,14 +15,12 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABL
     autoRefreshToken: true,
   },
   global: {
-    headers: {
-      'x-swell-session': '',
-    },
+    headers: {},
     fetch: (url, options) => {
       const token = localStorage.getItem('swell_session');
       const headers = new Headers(options?.headers);
       if (token) {
-        headers.set('x-swell-session', token);
+        headers.set('Authorization', `Bearer ${token}`);
       }
       return fetch(url, { ...options, headers });
     },
