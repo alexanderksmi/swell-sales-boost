@@ -352,16 +352,33 @@ Deno.serve(async (req) => {
               const allowedOrigins = ${JSON.stringify(allowedOrigins)};
               const fallbackOrigin = '${fallbackOrigin}';
               
+              function isAllowedOrigin(origin) {
+                // Check exact matches
+                if (allowedOrigins.includes(origin)) {
+                  return true;
+                }
+                // Check if it's a Lovable project preview domain
+                try {
+                  const url = new URL(origin);
+                  if (url.hostname.endsWith('.lovableproject.com')) {
+                    return true;
+                  }
+                } catch (e) {
+                  return false;
+                }
+                return false;
+              }
+              
               if (window.opener && window.opener.location) {
                 try {
                   const openerOrigin = window.opener.location.origin;
                   console.log('[CALLBACK] openerOrigin:', openerOrigin);
                   
-                  // Check if openerOrigin is in allowed list
-                  const isInAllowedList = allowedOrigins.includes(openerOrigin);
-                  console.log('[CALLBACK] openerOrigin in ALLOWED_APP_ORIGINS:', isInAllowedList);
+                  // Check if openerOrigin is allowed
+                  const isAllowed = isAllowedOrigin(openerOrigin);
+                  console.log('[CALLBACK] openerOrigin is allowed:', isAllowed);
                   
-                  const targetOrigin = isInAllowedList ? openerOrigin : fallbackOrigin;
+                  const targetOrigin = isAllowed ? openerOrigin : fallbackOrigin;
                   console.log('[CALLBACK] targetOrigin (will send postMessage to):', targetOrigin);
                   
                   window.opener.postMessage({ 
@@ -431,15 +448,32 @@ Deno.serve(async (req) => {
             const allowedOrigins = ${JSON.stringify(allowedOrigins)};
             const fallbackOrigin = '${publicAppOrigin}';
             
+            function isAllowedOrigin(origin) {
+              // Check exact matches
+              if (allowedOrigins.includes(origin)) {
+                return true;
+              }
+              // Check if it's a Lovable project preview domain
+              try {
+                const url = new URL(origin);
+                if (url.hostname.endsWith('.lovableproject.com')) {
+                  return true;
+                }
+              } catch (e) {
+                return false;
+              }
+              return false;
+            }
+            
             if (window.opener && window.opener.location) {
               try {
                 const openerOrigin = window.opener.location.origin;
                 console.log('[CALLBACK ERROR] openerOrigin:', openerOrigin);
                 
-                const isInAllowedList = allowedOrigins.includes(openerOrigin);
-                console.log('[CALLBACK ERROR] openerOrigin in ALLOWED_APP_ORIGINS:', isInAllowedList);
+                const isAllowed = isAllowedOrigin(openerOrigin);
+                console.log('[CALLBACK ERROR] openerOrigin is allowed:', isAllowed);
                 
-                const targetOrigin = isInAllowedList ? openerOrigin : fallbackOrigin;
+                const targetOrigin = isAllowed ? openerOrigin : fallbackOrigin;
                 console.log('[CALLBACK ERROR] targetOrigin:', targetOrigin);
                 
                 window.opener.postMessage({ 
