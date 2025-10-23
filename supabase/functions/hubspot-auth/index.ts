@@ -34,15 +34,19 @@ Deno.serve(async (req) => {
   console.log('HubSpot auth endpoint called:', path);
 
   try {
-    // Route: /start - Initiate OAuth flow
+      // Route: /start - Initiate OAuth flow
     if (path.includes('/start')) {
-      // Get frontend URL and state from query params
+      // Get frontend URL and client state from query params
       const frontendUrl = url.searchParams.get('frontend_url') || req.headers.get('referer') || '';
       const cleanFrontendUrl = frontendUrl ? new URL(frontendUrl).origin : '';
       const clientState = url.searchParams.get('state') || '';
       
       console.log('Starting OAuth with frontend URL:', cleanFrontendUrl);
-      console.log('Client state:', clientState.substring(0, 8) + '...');
+      console.log('Client state (kryptografisk):', clientState.substring(0, 8) + '...');
+      
+      if (!clientState) {
+        throw new Error('Missing state parameter for CSRF protection');
+      }
       
       const hubspotAuthUrl = new URL('https://app.hubspot.com/oauth/authorize');
       hubspotAuthUrl.searchParams.set('client_id', HUBSPOT_CLIENT_ID!);
@@ -82,10 +86,14 @@ Deno.serve(async (req) => {
           frontendUrl = stateData.frontend_url || '';
           clientState = stateData.client_state || '';
           console.log('Frontend URL from state:', frontendUrl);
-          console.log('Client state from OAuth:', clientState.substring(0, 8) + '...');
+          console.log('Client state (kryptografisk) from OAuth:', clientState.substring(0, 8) + '...');
         } catch (e) {
           console.error('Failed to parse state:', e);
         }
+      }
+      
+      if (!clientState) {
+        throw new Error('Missing client state - CSRF protection failed');
       }
       
       if (!code) {
