@@ -24,7 +24,13 @@ const App = () => {
       console.log('event.origin:', event.origin);
       console.log('event.data.type:', event.data?.type);
       
-      // Only validate source - state validation will happen next
+      // Validate that message is from edge function (not app origin)
+      if (event.origin !== EDGE_ORIGIN) {
+        console.log('[App] Ignoring message from non-edge origin:', event.origin);
+        return;
+      }
+      
+      // Validate source
       if (event.data.source !== 'hubspot') {
         console.log('[App] Ignoring message from non-hubspot source');
         return;
