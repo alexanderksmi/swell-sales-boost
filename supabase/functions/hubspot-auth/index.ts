@@ -336,7 +336,7 @@ Deno.serve(async (req) => {
         <!DOCTYPE html>
         <html>
         <head>
-          <title>Authentication Success</title>
+          <title>Authenticating...</title>
         </head>
         <body>
           <script>
@@ -347,11 +347,11 @@ Deno.serve(async (req) => {
               if (window.opener && window.opener.location) {
                 try {
                   const openerOrigin = window.opener.location.origin;
-                  console.log('Opener origin:', openerOrigin);
+                  console.log('openerOrigin:', openerOrigin);
                   
-                  // Verify opener origin is in allowed list
+                  // Check if openerOrigin is in allowed list
                   const targetOrigin = allowedOrigins.includes(openerOrigin) ? openerOrigin : fallbackOrigin;
-                  console.log('Target origin:', targetOrigin);
+                  console.log('targetOrigin:', targetOrigin);
                   
                   window.opener.postMessage({ 
                     type: 'hubspot-auth-success', 
@@ -359,14 +359,10 @@ Deno.serve(async (req) => {
                     sessionKey: '${sessionKey}',
                     state: '${clientState}'
                   }, targetOrigin);
-                  console.log('postMessage sent, closing in 50ms');
                   
-                  setTimeout(() => {
-                    window.close();
-                  }, 50);
+                  window.close();
                 } catch (e) {
                   console.error('Error accessing opener origin:', e);
-                  // Fallback if we can't access opener origin
                   window.location.href = fallbackOrigin + '/?session_key=${sessionKey}';
                 }
               } else {
@@ -426,7 +422,10 @@ Deno.serve(async (req) => {
             if (window.opener && window.opener.location) {
               try {
                 const openerOrigin = window.opener.location.origin;
+                console.log('openerOrigin (error):', openerOrigin);
+                
                 const targetOrigin = allowedOrigins.includes(openerOrigin) ? openerOrigin : fallbackOrigin;
+                console.log('targetOrigin (error):', targetOrigin);
                 
                 window.opener.postMessage({ 
                   type: 'hubspot-auth-error', 
@@ -434,15 +433,10 @@ Deno.serve(async (req) => {
                   error: '${errorMessage.replace(/'/g, "\\'")}'
                 }, targetOrigin);
                 
-                setTimeout(() => {
-                  window.close();
-                }, 50);
+                window.close();
               } catch (e) {
                 console.error('Error accessing opener origin:', e);
-                document.body.innerHTML = '<p>Error: ${errorMessage.replace(/'/g, "\\'")}</p>';
               }
-            } else {
-              document.body.innerHTML = '<p>Error: ${errorMessage.replace(/'/g, "\\'")}</p>';
             }
           })();
         </script>
