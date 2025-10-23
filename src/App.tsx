@@ -19,8 +19,10 @@ const App = () => {
   // Global message listener for OAuth messages from edge functions
   useEffect(() => {
     const handleMessage = async (event: MessageEvent) => {
-      // Debug log before validation
-      console.debug('oauth msg', event.origin, event.data?.type, !!event.data?.sessionKey, event.data?.state);
+      // TEST: Log all incoming message details
+      console.log('=== OAUTH TESTRUNDE ===');
+      console.log('event.origin:', event.origin);
+      console.log('event.data.type:', event.data?.type);
       
       // Only validate source - state validation will happen next
       if (event.data.source !== 'hubspot') {
@@ -30,11 +32,15 @@ const App = () => {
 
       // Validate state parameter for CSRF protection
       const expectedState = sessionStorage.getItem('swell_oauth_state');
-      if (!expectedState || event.data.state !== expectedState) {
+      const stateMatch = event.data.state === expectedState;
+      console.log('state-match:', stateMatch);
+      
+      if (!expectedState || !stateMatch) {
         console.error('[App] State mismatch - potential CSRF attack');
         
         // Close popup on error
         try {
+          console.log('Closing popup (error):', (window as any).__swellPopup);
           (window as any).__swellPopup?.close();
         } catch (e) {
           console.error('[App] Failed to close popup:', e);
@@ -100,13 +106,17 @@ const App = () => {
           
           // Close popup
           try {
+            console.log('Closing popup (success):', (window as any).__swellPopup);
             (window as any).__swellPopup?.close();
+            console.log('Popup closed');
           } catch (e) {
             console.error('[App] Failed to close popup:', e);
           }
           
           // Navigate to leaderboard
+          console.log('Navigating to:', '/app/leaderboard');
           window.location.href = '/app/leaderboard';
+          console.log('=== TESTRUNDE FERDIG ===');
           
         } catch (error) {
           console.error('[App] Failed to exchange session:', error);
