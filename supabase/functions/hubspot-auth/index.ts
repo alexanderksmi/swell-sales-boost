@@ -355,11 +355,14 @@ Deno.serve(async (req) => {
               if (window.opener && window.opener.location) {
                 try {
                   const openerOrigin = window.opener.location.origin;
-                  console.log('openerOrigin:', openerOrigin);
+                  console.log('[CALLBACK] openerOrigin:', openerOrigin);
                   
                   // Check if openerOrigin is in allowed list
-                  const targetOrigin = allowedOrigins.includes(openerOrigin) ? openerOrigin : fallbackOrigin;
-                  console.log('targetOrigin:', targetOrigin);
+                  const isInAllowedList = allowedOrigins.includes(openerOrigin);
+                  console.log('[CALLBACK] openerOrigin in ALLOWED_APP_ORIGINS:', isInAllowedList);
+                  
+                  const targetOrigin = isInAllowedList ? openerOrigin : fallbackOrigin;
+                  console.log('[CALLBACK] targetOrigin (will send postMessage to):', targetOrigin);
                   
                   window.opener.postMessage({ 
                     type: 'hubspot-auth-success', 
@@ -430,10 +433,13 @@ Deno.serve(async (req) => {
             if (window.opener && window.opener.location) {
               try {
                 const openerOrigin = window.opener.location.origin;
-                console.log('openerOrigin (error):', openerOrigin);
+                console.log('[CALLBACK ERROR] openerOrigin:', openerOrigin);
                 
-                const targetOrigin = allowedOrigins.includes(openerOrigin) ? openerOrigin : fallbackOrigin;
-                console.log('targetOrigin (error):', targetOrigin);
+                const isInAllowedList = allowedOrigins.includes(openerOrigin);
+                console.log('[CALLBACK ERROR] openerOrigin in ALLOWED_APP_ORIGINS:', isInAllowedList);
+                
+                const targetOrigin = isInAllowedList ? openerOrigin : fallbackOrigin;
+                console.log('[CALLBACK ERROR] targetOrigin:', targetOrigin);
                 
                 window.opener.postMessage({ 
                   type: 'hubspot-auth-error', 

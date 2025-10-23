@@ -19,22 +19,23 @@ const App = () => {
   // Global message listener for OAuth messages from edge functions
   useEffect(() => {
     const handleMessage = async (event: MessageEvent) => {
-      // TEST: Log all incoming message details
-      console.log('=== OAUTH TESTRUNDE ===');
-      console.log('event.origin:', event.origin);
-      console.log('event.data.type:', event.data?.type);
+      // Log incoming message before validation
+      console.log('[MAIN WINDOW] event.origin:', event.origin);
+      console.log('[MAIN WINDOW] event.data.type:', event.data?.type);
       
       // Validate that message is from edge function (not app origin)
       if (event.origin !== EDGE_ORIGIN) {
-        console.log('[App] Ignoring message from non-edge origin:', event.origin);
+        console.log('[MAIN WINDOW] Ignoring message from non-edge origin:', event.origin);
         return;
       }
       
       // Validate source
       if (event.data.source !== 'hubspot') {
-        console.log('[App] Ignoring message from non-hubspot source');
+        console.log('[MAIN WINDOW] Ignoring message from non-hubspot source');
         return;
       }
+      
+      console.log('[MAIN WINDOW] ✅ Message validation passed - ACCEPTED');
 
       // Validate state parameter for CSRF protection
       const expectedState = sessionStorage.getItem('swell_oauth_state');
