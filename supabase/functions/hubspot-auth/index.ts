@@ -408,6 +408,7 @@ Deno.serve(async (req) => {
           ...corsHeaders,
           'Content-Type': 'text/html; charset=utf-8',
           'X-Content-Type-Options': 'nosniff',
+          'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';",
         }
       });
     }
@@ -499,6 +500,7 @@ Deno.serve(async (req) => {
         ...corsHeaders,
         'Content-Type': 'text/html; charset=utf-8',
         'X-Content-Type-Options': 'nosniff',
+        'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';",
       },
     });
   }
