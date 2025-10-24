@@ -104,10 +104,15 @@ const Leaderboard = () => {
 
   const handleLogout = async () => {
     try {
-      // Clear session cookie by calling a logout endpoint or just navigate away
-      // For now, just clear client state and navigate home
+      // Clear session from localStorage
+      localStorage.removeItem('swell_session');
+      
+      // Also clear any cookies
       document.cookie = 'swell_session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT;';
+      
       toast.success('Logget ut');
+      
+      // Navigate to home page
       navigate('/');
     } catch (error) {
       console.error('Logout error:', error);
