@@ -128,18 +128,21 @@ const Index = () => {
     const left = window.screen.width / 2 - width / 2;
     const top = window.screen.height / 2 - height / 2;
     
-    // Open popup synchronously BEFORE any async operations (prevents popup blocking)
+    // Build URL before opening popup to avoid sandboxing
+    const frontendUrl = encodeURIComponent(window.location.origin);
+    const startUrl = `${EDGE_ORIGIN}/functions/v1/hubspot-auth/start?frontend_url=${frontendUrl}&state=${encodeURIComponent(state)}`;
+    
+    console.log('[Frontend] Opening OAuth popup with state:', state.substring(0, 8) + '...');
+    
+    // Open popup directly to the edge function URL (prevents sandbox issue)
     const newPopup = window.open(
-      'about:blank',
+      startUrl,
       'hubspot-oauth',
       `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
     );
 
     if (!newPopup) {
       // Popup was blocked - fallback to full redirect
-      const frontendUrl = encodeURIComponent(window.location.origin);
-      const startUrl = `${EDGE_ORIGIN}/functions/v1/hubspot-auth/start?frontend_url=${frontendUrl}&state=${encodeURIComponent(state)}`;
-      
       toast({
         title: "Popup blokkert",
         description: "Omdirigerer til innlogging i samme vindu...",
@@ -155,13 +158,6 @@ const Index = () => {
     (window as any).__swellPopup = newPopup;
     setPopup(newPopup);
     setIsLoggingIn(true);
-
-    // Set URL after opening (Safari requirement)
-    const frontendUrl = encodeURIComponent(window.location.origin);
-    const startUrl = `${EDGE_ORIGIN}/functions/v1/hubspot-auth/start?frontend_url=${frontendUrl}&state=${encodeURIComponent(state)}`;
-    
-    console.log('[Frontend] Opening OAuth popup with state:', state.substring(0, 8) + '...');
-    newPopup.location.href = startUrl;
 
     // Monitor popup closure to reset loading state
     const checkPopup = setInterval(() => {
