@@ -15,26 +15,27 @@ Deno.serve(async (req) => {
     const code = url.searchParams.get('code');
     const state = url.searchParams.get('state');
 
-    if (!code || !state) {
-      return new Response(null, {
-        status: 302,
-        headers: {
-          'Location': '/auth/hubspot/callback?error=hubspot_oauth_failed',
-        },
-      });
-    }
-
     // Hent miljøvariabler
+    const appBaseUrl = Deno.env.get('APP_BASE_URL') || '';
     const clientId = Deno.env.get('HUBSPOT_CLIENT_ID');
     const clientSecret = Deno.env.get('HUBSPOT_CLIENT_SECRET');
     const redirectUri = Deno.env.get('HUBSPOT_REDIRECT_URI');
 
-    if (!clientId || !clientSecret || !redirectUri) {
-      console.error('Missing HubSpot credentials');
+    if (!code || !state) {
       return new Response(null, {
         status: 302,
         headers: {
-          'Location': '/auth/hubspot/callback?error=hubspot_oauth_failed',
+          'Location': `${appBaseUrl}/auth/hubspot/callback?error=hubspot_oauth_failed`,
+        },
+      });
+    }
+
+    if (!clientId || !clientSecret || !redirectUri || !appBaseUrl) {
+      console.error('Missing HubSpot credentials or APP_BASE_URL');
+      return new Response(null, {
+        status: 302,
+        headers: {
+          'Location': `${appBaseUrl}/auth/hubspot/callback?error=hubspot_oauth_failed`,
         },
       });
     }
@@ -59,7 +60,7 @@ Deno.serve(async (req) => {
       return new Response(null, {
         status: 302,
         headers: {
-          'Location': '/auth/hubspot/callback?error=hubspot_oauth_failed',
+          'Location': `${appBaseUrl}/auth/hubspot/callback?error=hubspot_oauth_failed`,
         },
       });
     }
@@ -86,7 +87,7 @@ Deno.serve(async (req) => {
       return new Response(null, {
         status: 302,
         headers: {
-          'Location': '/auth/hubspot/callback?error=hubspot_oauth_failed',
+          'Location': `${appBaseUrl}/auth/hubspot/callback?error=hubspot_oauth_failed`,
         },
       });
     }
@@ -100,7 +101,7 @@ Deno.serve(async (req) => {
       return new Response(null, {
         status: 302,
         headers: {
-          'Location': '/auth/hubspot/callback?error=hubspot_oauth_failed',
+          'Location': `${appBaseUrl}/auth/hubspot/callback?error=hubspot_oauth_failed`,
         },
       });
     }
@@ -121,7 +122,7 @@ Deno.serve(async (req) => {
       return new Response(null, {
         status: 302,
         headers: {
-          'Location': '/auth/hubspot/callback?error=hubspot_oauth_failed',
+          'Location': `${appBaseUrl}/auth/hubspot/callback?error=hubspot_oauth_failed`,
         },
       });
     }
@@ -130,16 +131,17 @@ Deno.serve(async (req) => {
     return new Response(null, {
       status: 302,
       headers: {
-        'Location': '/auth/hubspot/callback?ok=1',
+        'Location': `${appBaseUrl}/auth/hubspot/callback?ok=1`,
       },
     });
 
   } catch (error) {
     console.error('Error in hubspot-oauth-exchange:', error);
+    const appBaseUrl = Deno.env.get('APP_BASE_URL') || '';
     return new Response(null, {
       status: 302,
       headers: {
-        'Location': '/auth/hubspot/callback?error=hubspot_oauth_failed',
+        'Location': `${appBaseUrl}/auth/hubspot/callback?error=hubspot_oauth_failed`,
       },
     });
   }

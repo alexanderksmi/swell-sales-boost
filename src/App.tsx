@@ -11,8 +11,6 @@ import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
-const EDGE_ORIGIN = 'https://ffbdcvvxiklzgfwrhbta.supabase.co';
-
 const App = () => {
   const { toast } = useToast();
 
@@ -23,9 +21,9 @@ const App = () => {
       console.log('[MAIN WINDOW] event.origin:', event.origin);
       console.log('[MAIN WINDOW] event.data.type:', event.data?.type);
       
-      // Validate that message is from edge function (not app origin)
-      if (event.origin !== EDGE_ORIGIN) {
-        console.log('[MAIN WINDOW] Ignoring message from non-edge origin:', event.origin);
+      // Validate that message is from same origin (app callback page)
+      if (event.origin !== window.location.origin) {
+        console.log('[MAIN WINDOW] Ignoring message from different origin:', event.origin);
         return;
       }
       
