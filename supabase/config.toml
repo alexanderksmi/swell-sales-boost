@@ -3,6 +3,9 @@ project_id = "ffbdcvvxiklzgfwrhbta"
 [functions.hubspot-auth]
 verify_jwt = false
 
+[functions.hubspot-oauth-exchange]
+verify_jwt = false
+
 [functions.sync-hubspot-data]
 verify_jwt = false
 
