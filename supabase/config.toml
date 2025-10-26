@@ -20,3 +20,6 @@ verify_jwt = false
 
 [functions.api-exchange-session]
 verify_jwt = false
+
+[functions.sync-tenant-names]
+verify_jwt = false

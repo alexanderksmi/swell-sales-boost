@@ -173,9 +173,13 @@ Deno.serve(async (req) => {
       
       if (accountInfoResponse.ok) {
         const accountInfo = await accountInfoResponse.json();
+        console.log('HubSpot account info response:', JSON.stringify(accountInfo));
         if (accountInfo.portalName) {
           companyName = accountInfo.portalName;
           console.log('Retrieved company name from HubSpot:', companyName);
+        } else if (accountInfo.name) {
+          companyName = accountInfo.name;
+          console.log('Retrieved company name (name field) from HubSpot:', companyName);
         }
       } else {
         console.log('Failed to fetch account info, using default company name');
