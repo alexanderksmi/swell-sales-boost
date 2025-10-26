@@ -7,6 +7,7 @@ import { useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import Index from "./pages/Index";
 import Leaderboard from "./pages/Leaderboard";
+import HubSpotAuthStart from "./pages/HubSpotAuthStart";
 import HubSpotCallback from "./pages/HubSpotCallback";
 import NotFound from "./pages/NotFound";
 
@@ -176,6 +177,7 @@ const App = () => {
           <Routes>
             <Route path="/" element={<Index />} />
             <Route path="/app/leaderboard" element={<Leaderboard />} />
+            <Route path="/auth/hubspot/start" element={<HubSpotAuthStart />} />
             <Route path="/auth/hubspot/callback" element={<HubSpotCallback />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />

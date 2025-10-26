@@ -128,16 +128,16 @@ const Index = () => {
     const left = window.screen.width / 2 - width / 2;
     const top = window.screen.height / 2 - height / 2;
     
-    // Build URL before opening popup to avoid sandboxing
+    // Build URL to open popup on same origin first
     const frontendUrl = encodeURIComponent(window.location.origin);
-    const startUrl = `${EDGE_ORIGIN}/functions/v1/hubspot-auth/start?frontend_url=${frontendUrl}&state=${encodeURIComponent(state)}`;
+    const startUrl = `${window.location.origin}/auth/hubspot/start?frontend_url=${frontendUrl}&state=${encodeURIComponent(state)}`;
     
-    console.log('[Frontend] Opening OAuth popup with state:', state.substring(0, 8) + '...');
+    console.log('[Frontend] Opening OAuth popup on same origin with state:', state.substring(0, 8) + '...');
     
-    // Open popup directly to the edge function URL (prevents sandbox issue)
+    // Open popup to same origin page (better security and UX)
     const newPopup = window.open(
       startUrl,
-      'hubspot-oauth',
+      'Swell - HubSpot Autentisering',
       `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
     );
 
