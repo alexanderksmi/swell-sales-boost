@@ -106,9 +106,10 @@ const App = () => {
             throw new Error(data.error || 'No session token received');
           }
 
-          // Store JWT token in localStorage
-          console.log('[App] Storing token and navigating to leaderboard');
+          // Store JWT token and set fresh login flag
+          console.log('[App] Storing token and setting fresh login flag');
           localStorage.setItem('swell_session', data.sessionToken);
+          localStorage.setItem('swell_fresh_login', 'true');
           
           // Close popup
           try {
@@ -119,7 +120,13 @@ const App = () => {
             console.error('[App] Failed to close popup:', e);
           }
           
-          // Navigate to leaderboard
+          // Show success message
+          toast({
+            title: "Innlogging vellykket",
+            description: "Henter dine data fra HubSpot..."
+          });
+          
+          // Navigate to leaderboard - this will trigger data fetch
           console.log('Navigating to:', '/app/leaderboard');
           window.location.href = '/app/leaderboard';
           console.log('=== TESTRUNDE FERDIG ===');

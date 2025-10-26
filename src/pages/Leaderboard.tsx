@@ -45,6 +45,14 @@ const Leaderboard = () => {
   useEffect(() => {
     const fetchUserData = async () => {
       try {
+        // Check if this is a fresh login
+        const isFreshLogin = localStorage.getItem('swell_fresh_login') === 'true';
+        if (isFreshLogin) {
+          console.log('[Leaderboard] Fresh login detected, will fetch data');
+          localStorage.removeItem('swell_fresh_login');
+          toast.success('Velkommen! Henter dine data...');
+        }
+
         // Check session validity via edge function
         const sessionData = await checkSession();
 
