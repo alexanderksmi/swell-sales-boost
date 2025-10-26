@@ -41,7 +41,6 @@ Deno.serve(async (req) => {
     const appBaseUrl = Deno.env.get('APP_BASE_URL') || '';
     const clientId = Deno.env.get('HUBSPOT_CLIENT_ID');
     const clientSecret = Deno.env.get('HUBSPOT_CLIENT_SECRET');
-    const redirectUri = Deno.env.get('HUBSPOT_REDIRECT_URI');
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
@@ -55,7 +54,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    if (!clientId || !clientSecret || !redirectUri || !appBaseUrl) {
+    if (!clientId || !clientSecret || !appBaseUrl) {
       console.error('Missing required environment variables');
       return new Response(null, {
         status: 302,
@@ -108,7 +107,7 @@ Deno.serve(async (req) => {
 
     console.log('State validated successfully');
 
-    // Token exchange with HubSpot
+    // Token exchange with HubSpot - use hardcoded redirect_uri to match authorize step
     const tokenResponse = await fetch('https://api.hubapi.com/oauth/v1/token', {
       method: 'POST',
       headers: {
@@ -118,7 +117,7 @@ Deno.serve(async (req) => {
         grant_type: 'authorization_code',
         client_id: clientId,
         client_secret: clientSecret,
-        redirect_uri: redirectUri,
+        redirect_uri: 'https://ffbdcvvxiklzgfwrhbta.supabase.co/functions/v1/hubspot-oauth-exchange',
         code: code,
       }),
     });
