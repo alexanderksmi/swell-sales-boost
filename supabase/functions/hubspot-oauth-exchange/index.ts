@@ -159,17 +159,42 @@ Deno.serve(async (req) => {
 
     console.log('HubSpot user info:', { portalId, hubspotUserId, userEmail });
 
+    // Fetch account info to get company name
+    let companyName = `HubSpot Portal ${portalId}`;
+    try {
+      const accountInfoResponse = await fetch(
+        'https://api.hubapi.com/account-info/v3/details',
+        {
+          headers: {
+            'Authorization': `Bearer ${access_token}`,
+          },
+        }
+      );
+      
+      if (accountInfoResponse.ok) {
+        const accountInfo = await accountInfoResponse.json();
+        if (accountInfo.portalName) {
+          companyName = accountInfo.portalName;
+          console.log('Retrieved company name from HubSpot:', companyName);
+        }
+      } else {
+        console.log('Failed to fetch account info, using default company name');
+      }
+    } catch (error) {
+      console.log('Error fetching account info:', error);
+    }
+
     // Calculate expiration time
     const expiresAt = new Date(Date.now() + expires_in * 1000).toISOString();
 
-    // Upsert tenant with portal ID
+    // Upsert tenant with portal ID and company name
     const { data: tenant, error: tenantError } = await supabase
       .from('tenants')
       .upsert(
         {
           portal_id: portalId,
           hubspot_portal_id: portalId,
-          company_name: `HubSpot Portal ${portalId}`,
+          company_name: companyName,
           updated_at: new Date().toISOString(),
         },
         { onConflict: 'portal_id' }
