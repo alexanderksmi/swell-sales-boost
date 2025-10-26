@@ -27,14 +27,33 @@ function getCorsHeaders(origin: string | null): Record<string, string> {
   };
 }
 
-// Environment variables
+// Environment variables - Required for OAuth flow
 const HUBSPOT_CLIENT_ID = Deno.env.get('HUBSPOT_CLIENT_ID');
 const HUBSPOT_CLIENT_SECRET = Deno.env.get('HUBSPOT_CLIENT_SECRET');
 const HUBSPOT_REDIRECT_URI = Deno.env.get('HUBSPOT_REDIRECT_URI');
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-const PUBLIC_APP_URL = Deno.env.get('PUBLIC_APP_URL') || 'https://swell-sales-boost.lovable.app';
-const ALLOWED_APP_ORIGINS = Deno.env.get('ALLOWED_APP_ORIGINS') || '';
+const APP_BASE_URL = Deno.env.get('APP_BASE_URL');
+
+// Validate required environment variables at startup
+function validateEnvVars(): { valid: boolean; missing: string[] } {
+  const required = [
+    'HUBSPOT_CLIENT_ID',
+    'HUBSPOT_CLIENT_SECRET', 
+    'HUBSPOT_REDIRECT_URI',
+    'SUPABASE_URL',
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'APP_BASE_URL'
+  ];
+  
+  const missing = required.filter(key => !Deno.env.get(key));
+  return { valid: missing.length === 0, missing };
+}
+
+const envCheck = validateEnvVars();
+if (!envCheck.valid) {
+  console.error('CRITICAL: Missing required environment variables:', envCheck.missing);
+}
 
 // OAuth scopes required for HubSpot integration
 const SCOPES = [
@@ -59,6 +78,18 @@ Deno.serve(async (req) => {
   console.log('HubSpot auth endpoint called:', path);
 
   try {
+      // Validate environment variables before proceeding
+      if (!envCheck.valid) {
+        console.error('Cannot proceed - missing environment variables');
+        return new Response(
+          JSON.stringify({ error: 'Server configuration error' }),
+          { 
+            status: 500, 
+            headers: { ...headers, 'Content-Type': 'application/json' } 
+          }
+        );
+      }
+
       // Route: /start - Initiate OAuth flow
     if (path.includes('/start')) {
       // Get frontend URL and client state from query params
@@ -173,7 +204,7 @@ Deno.serve(async (req) => {
       }
 
       const tokens = await tokenResponse.json();
-      console.log('Tokens received successfully');
+      console.log('Tokens received successfully (details hidden for security)');
 
       // Fetch HubSpot account info to get portal ID
       const accountInfoResponse = await fetch('https://api.hubapi.com/oauth/v1/access-tokens/' + tokens.access_token);
@@ -319,11 +350,11 @@ Deno.serve(async (req) => {
         );
 
       if (tokenError) {
-        console.error('Token storage error:', tokenError);
-        throw new Error(`Failed to store tokens: ${tokenError.message}`);
+        console.error('Token storage error (details hidden for security)');
+        throw new Error('Failed to store tokens');
       }
 
-      console.log('Tokens stored successfully');
+      console.log('Tokens stored successfully for tenant:', tenant.id);
 
       // Create session JWT with tenant_id and user_id
       const sessionPayload = {
@@ -381,12 +412,12 @@ Deno.serve(async (req) => {
       console.log('Session saved, sending postMessage and closing popup');
 
       // Send postMessage to frontend with session_key, state, and close popup
-      // Extract only origin from PUBLIC_APP_URL (no path)
-      const publicAppOrigin = new URL(PUBLIC_APP_URL).origin;
-      const fallbackOrigin = frontendUrl || publicAppOrigin;
+      // Use APP_BASE_URL as fallback origin
+      const appOrigin = new URL(APP_BASE_URL!).origin;
+      const fallbackOrigin = frontendUrl || appOrigin;
       console.log('fallbackOrigin (should be prod or preview origin):', fallbackOrigin);
       
-      const allowedOrigins = ALLOWED_APP_ORIGINS.split(',').map(o => o.trim()).filter(Boolean);
+      const allowedOrigins = ALLOWED_ORIGINS;
       console.log('Allowed origins:', allowedOrigins);
       
       const html = `
@@ -478,11 +509,11 @@ Deno.serve(async (req) => {
     console.error('HubSpot auth error:', error);
 
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    const allowedOrigins = ALLOWED_APP_ORIGINS.split(',').map(o => o.trim()).filter(Boolean);
+    const allowedOrigins = ALLOWED_ORIGINS;
     
-    // Extract only origin from PUBLIC_APP_URL (no path)
-    const publicAppOrigin = new URL(PUBLIC_APP_URL).origin;
-    console.log('Error fallbackOrigin:', publicAppOrigin);
+    // Use APP_BASE_URL as fallback origin
+    const appOrigin = new URL(APP_BASE_URL!).origin;
+    console.log('Error fallbackOrigin:', appOrigin);
     
     // Return HTML that sends error message via postMessage and closes popup
     const html = `
@@ -495,7 +526,7 @@ Deno.serve(async (req) => {
         <script>
           (function() {
             const allowedOrigins = ${JSON.stringify(allowedOrigins)};
-            const fallbackOrigin = '${publicAppOrigin}';
+            const fallbackOrigin = '${appOrigin}';
             
             function isAllowedOrigin(origin) {
               // Check exact matches

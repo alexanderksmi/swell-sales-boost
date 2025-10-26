@@ -265,7 +265,7 @@ Deno.serve(async (req) => {
       );
 
     if (tokenError) {
-      console.error('Token storage error:', tokenError);
+      console.error('Token storage error (details hidden for security)');
       return new Response(null, {
         status: 302,
         headers: {

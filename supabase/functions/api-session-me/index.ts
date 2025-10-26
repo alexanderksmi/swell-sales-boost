@@ -22,7 +22,7 @@ Deno.serve(async (req) => {
     const sessionToken = authHeader?.replace('Bearer ', '');
     
     if (!sessionToken) {
-      console.log('No session token found in Authorization header');
+      console.log('No session token provided');
       return new Response(
         JSON.stringify({ authenticated: false }),
         {
