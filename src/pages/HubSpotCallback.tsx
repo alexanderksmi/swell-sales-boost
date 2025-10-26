@@ -6,10 +6,9 @@ const HubSpotCallback = () => {
     const params = new URLSearchParams(window.location.search);
     const ok = params.get('ok');
     const error = params.get('error');
-    const state = params.get('state');
     const sessionKey = params.get('session_key');
 
-    console.log('[CALLBACK] Params:', { ok, error, state, sessionKey });
+    console.log('[CALLBACK] Params:', { ok, error, sessionKey });
 
     // Send postMessage to opener
     if (window.opener) {
@@ -18,18 +17,16 @@ const HubSpotCallback = () => {
           {
             source: 'hubspot',
             type: 'hubspot-auth-error',
-            error,
-            state
+            error
           },
           window.location.origin
         );
-      } else if (ok && sessionKey && state) {
+      } else if (ok && sessionKey) {
         window.opener.postMessage(
           {
             source: 'hubspot',
             type: 'hubspot-auth-success',
-            sessionKey,
-            state
+            sessionKey
           },
           window.location.origin
         );

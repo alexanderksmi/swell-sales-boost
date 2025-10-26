@@ -2,19 +2,18 @@ import { useEffect } from 'react';
 
 const HubSpotAuthStart = () => {
   useEffect(() => {
-    // Get state and frontend URL from query params
+    // Get frontend URL from query params
     const params = new URLSearchParams(window.location.search);
-    const state = params.get('state');
     const frontendUrl = params.get('frontend_url');
 
-    if (!state || !frontendUrl) {
-      console.error('[AUTH START] Missing required parameters');
+    if (!frontendUrl) {
+      console.error('[AUTH START] Missing required parameter: frontend_url');
       return;
     }
 
     // Redirect to edge function to start OAuth flow
     const edgeOrigin = 'https://ffbdcvvxiklzgfwrhbta.supabase.co';
-    const startUrl = `${edgeOrigin}/functions/v1/hubspot-auth/start?frontend_url=${encodeURIComponent(frontendUrl)}&state=${encodeURIComponent(state)}`;
+    const startUrl = `${edgeOrigin}/functions/v1/hubspot-auth/start?frontend_url=${encodeURIComponent(frontendUrl)}`;
     
     console.log('[AUTH START] Redirecting to OAuth flow');
     window.location.href = startUrl;

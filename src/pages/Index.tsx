@@ -115,14 +115,6 @@ const Index = () => {
   }, [navigate, toast]);
 
   const handleHubSpotLogin = () => {
-    // Generate cryptographic random state for CSRF protection
-    const stateArray = new Uint8Array(32);
-    crypto.getRandomValues(stateArray);
-    const state = Array.from(stateArray, byte => byte.toString(16).padStart(2, '0')).join('');
-    
-    // Store state in sessionStorage BEFORE opening popup
-    sessionStorage.setItem('swell_oauth_state', state);
-    
     const width = 600;
     const height = 700;
     const left = window.screen.width / 2 - width / 2;
@@ -130,9 +122,9 @@ const Index = () => {
     
     // Build URL to open popup on same origin first
     const frontendUrl = encodeURIComponent(window.location.origin);
-    const startUrl = `${window.location.origin}/auth/hubspot/start?frontend_url=${frontendUrl}&state=${encodeURIComponent(state)}`;
+    const startUrl = `${window.location.origin}/auth/hubspot/start?frontend_url=${frontendUrl}`;
     
-    console.log('[Frontend] Opening OAuth popup on same origin with state:', state.substring(0, 8) + '...');
+    console.log('[Frontend] Opening OAuth popup on same origin');
     
     // Open popup to same origin page (better security and UX)
     const newPopup = window.open(

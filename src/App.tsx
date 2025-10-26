@@ -37,35 +37,6 @@ const App = () => {
       
       console.log('[MAIN WINDOW] ✅ Message validation passed - ACCEPTED');
 
-      // Validate state parameter for CSRF protection
-      const expectedState = sessionStorage.getItem('swell_oauth_state');
-      const stateMatch = event.data.state === expectedState;
-      console.log('state-match:', stateMatch);
-      
-      if (!expectedState || !stateMatch) {
-        console.error('[App] State mismatch - potential CSRF attack');
-        
-        // Close popup on error
-        try {
-          console.log('Closing popup (error):', (window as any).__swellPopup);
-          (window as any).__swellPopup?.close();
-        } catch (e) {
-          console.error('[App] Failed to close popup:', e);
-        }
-        
-        toast({
-          title: "Sikkerhetsfeil",
-          description: "OAuth state validering feilet. Prøv igjen.",
-          variant: "destructive"
-        });
-        return;
-      }
-
-      console.log('[App] State validated, processing message:', event.data.type);
-
-      // Clear state after successful validation
-      sessionStorage.removeItem('swell_oauth_state');
-
       if (event.data.type === 'hubspot-auth-success') {
         const sessionKey = event.data.sessionKey;
         if (!sessionKey) {
