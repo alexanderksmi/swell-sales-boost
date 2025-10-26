@@ -85,6 +85,13 @@ Deno.serve(async (req) => {
         );
       }
 
+      // Fetch tenant information including company name
+      const { data: tenant, error: tenantError } = await supabase
+        .from('tenants')
+        .select('id, company_name')
+        .eq('id', user.tenant_id)
+        .single();
+
       console.log('Valid session found for user:', user.email);
       return new Response(
         JSON.stringify({
@@ -95,6 +102,7 @@ Deno.serve(async (req) => {
           },
           tenant: {
             id: user.tenant_id,
+            company_name: tenant?.company_name || 'Unknown Company',
           },
         }),
         {

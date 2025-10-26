@@ -41,6 +41,7 @@ const Leaderboard = () => {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [tenantId, setTenantId] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
+  const [companyName, setCompanyName] = useState<string>('');
 
   useEffect(() => {
     const fetchUserData = async () => {
@@ -66,6 +67,7 @@ const Leaderboard = () => {
         console.log('[Leaderboard] Valid session found:', sessionData.user);
         setUserId(sessionData.user.id);
         setTenantId(sessionData.tenant.id);
+        setCompanyName(sessionData.tenant.company_name || '');
 
         // Fetch leaderboard data
         const { data: leaderboardResponse, error: leaderboardError } = await supabase.functions.invoke(
@@ -151,6 +153,12 @@ const Leaderboard = () => {
             <h1 className="text-2xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
               Swell
             </h1>
+          </div>
+          
+          <div className="flex-1 flex justify-center">
+            <h2 className="text-lg font-semibold text-foreground">
+              {companyName}
+            </h2>
           </div>
           
           <div className="flex items-center gap-4">
