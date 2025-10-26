@@ -5,10 +5,33 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Allowed origins for CORS
+const ALLOWED_ORIGINS = [
+  'https://swell-sales-boost.lovable.app',
+  'https://preview--swell-sales-boost.lovable.app'
+];
+
+function getCorsHeaders(origin: string | null): Record<string, string> {
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    return {
+      'Access-Control-Allow-Origin': origin,
+      'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+      'Access-Control-Allow-Credentials': 'true',
+    };
+  }
+  return {
+    'Access-Control-Allow-Origin': ALLOWED_ORIGINS[0],
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  };
+}
+
 Deno.serve(async (req) => {
+  const origin = req.headers.get('origin');
+  const headers = getCorsHeaders(origin);
+  
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+    return new Response(null, { headers });
   }
 
   try {
@@ -26,7 +49,7 @@ Deno.serve(async (req) => {
       console.log('Missing session_key parameter');
       return new Response(
         JSON.stringify({ error: 'Missing session_key parameter' }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 400 }
+        { headers: { ...headers, 'Content-Type': 'application/json' }, status: 400 }
       );
     }
 
@@ -43,7 +66,7 @@ Deno.serve(async (req) => {
       console.log('Session not found or expired:', fetchError);
       return new Response(
         JSON.stringify({ error: 'Invalid or expired session key' }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 404 }
+        { headers: { ...headers, 'Content-Type': 'application/json' }, status: 404 }
       );
     }
 
@@ -56,7 +79,7 @@ Deno.serve(async (req) => {
       
       return new Response(
         JSON.stringify({ error: 'Session expired' }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 404 }
+        { headers: { ...headers, 'Content-Type': 'application/json' }, status: 404 }
       );
     }
 
@@ -77,14 +100,14 @@ Deno.serve(async (req) => {
     // Return the session token
     return new Response(
       JSON.stringify({ sessionToken: sessionData.session_token }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
+      { headers: { ...headers, 'Content-Type': 'application/json' }, status: 200 }
     );
 
   } catch (error) {
     console.error('api-exchange-session error:', error);
     return new Response(
       JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
+      { headers: { ...headers, 'Content-Type': 'application/json' }, status: 500 }
     );
   }
 });

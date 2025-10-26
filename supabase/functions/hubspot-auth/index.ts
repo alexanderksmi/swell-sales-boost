@@ -5,6 +5,28 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Allowed origins for CORS
+const ALLOWED_ORIGINS = [
+  'https://swell-sales-boost.lovable.app',
+  'https://preview--swell-sales-boost.lovable.app'
+];
+
+function getCorsHeaders(origin: string | null): Record<string, string> {
+  // Check if origin is allowed
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    return {
+      'Access-Control-Allow-Origin': origin,
+      'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+      'Access-Control-Allow-Credentials': 'true',
+    };
+  }
+  // Default to first allowed origin if origin not provided or not allowed
+  return {
+    'Access-Control-Allow-Origin': ALLOWED_ORIGINS[0],
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  };
+}
+
 // Environment variables
 const HUBSPOT_CLIENT_ID = Deno.env.get('HUBSPOT_CLIENT_ID');
 const HUBSPOT_CLIENT_SECRET = Deno.env.get('HUBSPOT_CLIENT_SECRET');
@@ -24,8 +46,11 @@ const SCOPES = [
 ].join(' ');
 
 Deno.serve(async (req) => {
+  const origin = req.headers.get('origin');
+  const headers = getCorsHeaders(origin);
+  
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+    return new Response(null, { headers });
   }
 
   const url = new URL(req.url);
@@ -66,7 +91,7 @@ Deno.serve(async (req) => {
       return new Response(null, {
         status: 302,
         headers: {
-          ...corsHeaders,
+          ...headers,
           'Location': hubspotAuthUrl.toString(),
         },
       });
@@ -405,10 +430,9 @@ Deno.serve(async (req) => {
       return new Response(html, {
         status: 200,
         headers: {
-          ...corsHeaders,
+          ...headers,
           'Content-Type': 'text/html; charset=utf-8',
           'X-Content-Type-Options': 'nosniff',
-          'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';",
         }
       });
     }
@@ -421,7 +445,7 @@ Deno.serve(async (req) => {
       {
         status: 404,
         headers: {
-          ...corsHeaders,
+          ...headers,
           'Content-Type': 'application/json',
         },
       }
@@ -497,10 +521,9 @@ Deno.serve(async (req) => {
     return new Response(html, {
       status: 500,
       headers: {
-        ...corsHeaders,
+        ...headers,
         'Content-Type': 'text/html; charset=utf-8',
         'X-Content-Type-Options': 'nosniff',
-        'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';",
       },
     });
   }

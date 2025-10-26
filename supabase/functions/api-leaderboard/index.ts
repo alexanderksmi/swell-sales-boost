@@ -5,6 +5,26 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Allowed origins for CORS
+const ALLOWED_ORIGINS = [
+  'https://swell-sales-boost.lovable.app',
+  'https://preview--swell-sales-boost.lovable.app'
+];
+
+function getCorsHeaders(origin: string | null): Record<string, string> {
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    return {
+      'Access-Control-Allow-Origin': origin,
+      'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+      'Access-Control-Allow-Credentials': 'true',
+    };
+  }
+  return {
+    'Access-Control-Allow-Origin': ALLOWED_ORIGINS[0],
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  };
+}
+
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 
@@ -33,8 +53,11 @@ const cache = new Map<string, { data: any; timestamp: number }>();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 Deno.serve(async (req) => {
+  const origin = req.headers.get('origin');
+  const headers = getCorsHeaders(origin);
+  
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+    return new Response(null, { headers });
   }
 
   try {
@@ -67,7 +90,7 @@ Deno.serve(async (req) => {
         {
           status: 200,
           headers: {
-            ...corsHeaders,
+            ...headers,
             'Content-Type': 'application/json',
             'X-Cache': 'HIT',
           },
@@ -176,7 +199,7 @@ Deno.serve(async (req) => {
       {
         status: 200,
         headers: {
-          ...corsHeaders,
+          ...headers,
           'Content-Type': 'application/json',
           'X-Cache': 'MISS',
           'Cache-Control': 'private, max-age=300',
@@ -193,7 +216,7 @@ Deno.serve(async (req) => {
       {
         status: 500,
         headers: {
-          ...corsHeaders,
+          ...headers,
           'Content-Type': 'application/json',
         },
       }
