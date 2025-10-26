@@ -18,6 +18,12 @@ const Index = () => {
 
   // Check if user is already logged in
   useEffect(() => {
+    // Clean up any legacy OAuth keys from previous implementations
+    sessionStorage.removeItem('swell_oauth_state');
+    sessionStorage.removeItem('oauth_state');
+    sessionStorage.removeItem('hubspot_state');
+    sessionStorage.removeItem('pendingAuth');
+    
     const checkExistingSession = async () => {
       try {
         const sessionData = await checkSession();

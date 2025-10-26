@@ -19,6 +19,21 @@ function getCorsHeaders(origin: string | null): Record<string, string> {
       'Access-Control-Allow-Credentials': 'true',
     };
   }
+  // Check if origin is a Lovable preview domain
+  if (origin) {
+    try {
+      const url = new URL(origin);
+      if (url.hostname.endsWith('.lovableproject.com') || url.hostname.endsWith('.lovable.app')) {
+        return {
+          'Access-Control-Allow-Origin': origin,
+          'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+          'Access-Control-Allow-Credentials': 'true',
+        };
+      }
+    } catch (e) {
+      // Invalid URL, continue to default
+    }
+  }
   return {
     'Access-Control-Allow-Origin': ALLOWED_ORIGINS[0],
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
