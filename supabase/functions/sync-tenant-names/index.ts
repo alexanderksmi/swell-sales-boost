@@ -60,54 +60,76 @@ Deno.serve(async (req) => {
       console.log(`Syncing tenant ${tenant.id} (portal: ${tenant.portal_id})`);
 
       try {
-        // Fetch account info from HubSpot
-        const accountInfoResponse = await fetch(
-          'https://api.hubapi.com/account-info/v3/details',
-          {
-            headers: {
-              'Authorization': `Bearer ${item.access_token}`,
-            },
-          }
-        );
+        // Get first user from tenant to fetch owner info
+        const { data: users, error: usersError } = await supabase
+          .from('users')
+          .select('hubspot_user_id, email')
+          .eq('tenant_id', tenant.id)
+          .limit(1);
 
-        if (accountInfoResponse.ok) {
-          const accountInfo = await accountInfoResponse.json();
-          console.log(`HubSpot account info for portal ${tenant.portal_id}:`, JSON.stringify(accountInfo));
-          const newCompanyName = accountInfo.portalName || accountInfo.name || `HubSpot Portal ${tenant.portal_id}`;
-
-          console.log(`Updating ${tenant.company_name} -> ${newCompanyName}`);
-
-          // Update tenant with new company name
-          const { error: updateError } = await supabase
-            .from('tenants')
-            .update({
-              company_name: newCompanyName,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', tenant.id);
-
-          if (updateError) {
-            console.error(`Failed to update tenant ${tenant.id}:`, updateError);
-            results.push({
-              tenant_id: tenant.id,
-              success: false,
-              error: updateError.message,
-            });
-          } else {
-            results.push({
-              tenant_id: tenant.id,
-              success: true,
-              old_name: tenant.company_name,
-              new_name: newCompanyName,
-            });
-          }
-        } else {
-          const errorText = await accountInfoResponse.text();
-          console.error(`Failed to fetch account info for tenant ${tenant.id}:`, errorText);
+        if (usersError || !users || users.length === 0) {
+          console.log(`No users found for tenant ${tenant.id}`);
           results.push({
             tenant_id: tenant.id,
             success: false,
-            error: `HubSpot API error: ${accountInfoResponse.status}`,
+            error: 'No users found',
+          });
+          continue;
+        }
+
+        const user = users[0];
+        let newCompanyName = `HubSpot Portal ${tenant.portal_id}`;
+
+        // Try to fetch owner info
+        if (user.hubspot_user_id) {
+          const ownerResponse = await fetch(
+            `https://api.hubapi.com/crm/v3/owners/${user.hubspot_user_id}`,
+            {
+              headers: {
+                'Authorization': `Bearer ${item.access_token}`,
+              },
+            }
+          );
+
+          if (ownerResponse.ok) {
+            const ownerInfo = await ownerResponse.json();
+            console.log(`HubSpot owner info for tenant ${tenant.id}:`, JSON.stringify(ownerInfo));
+            
+            if (ownerInfo.teams && ownerInfo.teams.length > 0 && ownerInfo.teams[0].name) {
+              newCompanyName = ownerInfo.teams[0].name;
+            } else if (user.email) {
+              const emailDomain = user.email.split('@')[1];
+              if (emailDomain && !emailDomain.includes('hubspot')) {
+                newCompanyName = emailDomain.split('.')[0].charAt(0).toUpperCase() + emailDomain.split('.')[0].slice(1);
+              }
+            }
+          }
+        }
+
+        console.log(`Updating ${tenant.company_name} -> ${newCompanyName}`);
+
+        // Update tenant with new company name
+        const { error: updateError } = await supabase
+          .from('tenants')
+          .update({
+            company_name: newCompanyName,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', tenant.id);
+
+        if (updateError) {
+          console.error(`Failed to update tenant ${tenant.id}:`, updateError);
+          results.push({
+            tenant_id: tenant.id,
+            success: false,
+            error: updateError.message,
+          });
+        } else {
+          results.push({
+            tenant_id: tenant.id,
+            success: true,
+            old_name: tenant.company_name,
+            new_name: newCompanyName,
           });
         }
       } catch (error) {

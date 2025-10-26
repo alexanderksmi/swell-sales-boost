@@ -159,11 +159,11 @@ Deno.serve(async (req) => {
 
     console.log('HubSpot user info:', { portalId, hubspotUserId, userEmail });
 
-    // Fetch account info to get company name
+    // Fetch company name from HubSpot owner details
     let companyName = `HubSpot Portal ${portalId}`;
     try {
-      const accountInfoResponse = await fetch(
-        'https://api.hubapi.com/account-info/v3/details',
+      const ownerResponse = await fetch(
+        `https://api.hubapi.com/crm/v3/owners/${hubspotUserId}`,
         {
           headers: {
             'Authorization': `Bearer ${access_token}`,
@@ -171,21 +171,27 @@ Deno.serve(async (req) => {
         }
       );
       
-      if (accountInfoResponse.ok) {
-        const accountInfo = await accountInfoResponse.json();
-        console.log('HubSpot account info response:', JSON.stringify(accountInfo));
-        if (accountInfo.portalName) {
-          companyName = accountInfo.portalName;
-          console.log('Retrieved company name from HubSpot:', companyName);
-        } else if (accountInfo.name) {
-          companyName = accountInfo.name;
-          console.log('Retrieved company name (name field) from HubSpot:', companyName);
+      if (ownerResponse.ok) {
+        const ownerInfo = await ownerResponse.json();
+        console.log('HubSpot owner info response:', JSON.stringify(ownerInfo));
+        
+        // Try to get company name from owner's teams or other fields
+        if (ownerInfo.teams && ownerInfo.teams.length > 0 && ownerInfo.teams[0].name) {
+          companyName = ownerInfo.teams[0].name;
+          console.log('Retrieved company name from owner team:', companyName);
+        } else if (ownerInfo.email) {
+          // Extract domain from email as last resort
+          const emailDomain = ownerInfo.email.split('@')[1];
+          if (emailDomain && !emailDomain.includes('hubspot')) {
+            companyName = emailDomain.split('.')[0].charAt(0).toUpperCase() + emailDomain.split('.')[0].slice(1);
+            console.log('Retrieved company name from email domain:', companyName);
+          }
         }
       } else {
-        console.log('Failed to fetch account info, using default company name');
+        console.log('Failed to fetch owner info, status:', ownerResponse.status);
       }
     } catch (error) {
-      console.log('Error fetching account info:', error);
+      console.log('Error fetching owner info:', error);
     }
 
     // Calculate expiration time
