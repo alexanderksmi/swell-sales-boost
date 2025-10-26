@@ -108,7 +108,7 @@ Deno.serve(async (req) => {
 
     console.log('State validated successfully');
 
-    // Token exchange with HubSpot
+    // Token exchange with HubSpot - must use SAME redirect_uri as in auth start
     const tokenResponse = await fetch('https://api.hubapi.com/oauth/v1/token', {
       method: 'POST',
       headers: {
@@ -118,7 +118,7 @@ Deno.serve(async (req) => {
         grant_type: 'authorization_code',
         client_id: clientId,
         client_secret: clientSecret,
-        redirect_uri: redirectUri,
+        redirect_uri: 'https://ffbdcvvxiklzgfwrhbta.supabase.co/functions/v1/hubspot-auth/callback',
         code: code,
       }),
     });

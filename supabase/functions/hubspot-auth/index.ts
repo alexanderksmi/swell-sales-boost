@@ -106,7 +106,7 @@ Deno.serve(async (req) => {
       
       const hubspotAuthUrl = new URL('https://app.hubspot.com/oauth/authorize');
       hubspotAuthUrl.searchParams.set('client_id', HUBSPOT_CLIENT_ID!);
-      hubspotAuthUrl.searchParams.set('redirect_uri', HUBSPOT_REDIRECT_URI!);
+      hubspotAuthUrl.searchParams.set('redirect_uri', 'https://ffbdcvvxiklzgfwrhbta.supabase.co/functions/v1/hubspot-auth/callback');
       hubspotAuthUrl.searchParams.set('scope', SCOPES);
       
       // Pass frontend URL and client state through OAuth state parameter
