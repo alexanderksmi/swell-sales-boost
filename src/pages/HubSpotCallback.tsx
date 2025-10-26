@@ -23,7 +23,7 @@ const HubSpotCallback = () => {
           },
           window.location.origin
         );
-      } else if (ok && sessionKey) {
+      } else if (ok && sessionKey && state) {
         window.opener.postMessage(
           {
             source: 'hubspot',

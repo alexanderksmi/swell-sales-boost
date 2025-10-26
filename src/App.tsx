@@ -156,9 +156,26 @@ const App = () => {
           console.error('[App] Failed to close popup:', e);
         }
         
+        // Map error codes to user-friendly messages
+        const errorMessages: Record<string, string> = {
+          'state_mismatch': 'Sikkerhetsfeil: State validering feilet. Prøv igjen.',
+          'state_expired': 'Innloggingssesjonen utløp. Vennligst prøv igjen.',
+          'missing_parameters': 'Mangler nødvendige parametere. Prøv igjen.',
+          'server_configuration': 'Serverkonfigurasjonsfeil. Kontakt support.',
+          'token_exchange_failed': 'Kunne ikke bytte autorisasjonskode. Prøv igjen.',
+          'tenant_creation_failed': 'Kunne ikke opprette tenant. Prøv igjen.',
+          'user_creation_failed': 'Kunne ikke opprette bruker. Prøv igjen.',
+          'user_update_failed': 'Kunne ikke oppdatere bruker. Prøv igjen.',
+          'token_storage_failed': 'Kunne ikke lagre tokens. Prøv igjen.',
+          'session_creation_failed': 'Kunne ikke opprette session. Prøv igjen.',
+          'unexpected_error': 'En uventet feil oppstod. Prøv igjen.',
+        };
+        
+        const errorMessage = errorMessages[event.data.error] || event.data.error || 'En feil oppstod under autentisering';
+        
         toast({
           title: "Innlogging feilet",
-          description: event.data.error || "En feil oppstod under autentisering",
+          description: errorMessage,
           variant: "destructive"
         });
       }

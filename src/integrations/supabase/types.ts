@@ -117,6 +117,36 @@ export type Database = {
           },
         ]
       }
+      oauth_states: {
+        Row: {
+          client_state: string
+          created_at: string
+          expires_at: string
+          frontend_url: string
+          id: string
+          state_value: string
+          used: boolean
+        }
+        Insert: {
+          client_state: string
+          created_at?: string
+          expires_at?: string
+          frontend_url: string
+          id?: string
+          state_value: string
+          used?: boolean
+        }
+        Update: {
+          client_state?: string
+          created_at?: string
+          expires_at?: string
+          frontend_url?: string
+          id?: string
+          state_value?: string
+          used?: boolean
+        }
+        Relationships: []
+      }
       org_defaults: {
         Row: {
           created_at: string
@@ -460,10 +490,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      get_user_tenant_id: {
-        Args: Record<PropertyKey, never>
-        Returns: string
-      }
+      get_user_tenant_id: { Args: never; Returns: string }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]

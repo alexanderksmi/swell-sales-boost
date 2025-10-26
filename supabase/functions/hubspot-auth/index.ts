@@ -86,6 +86,30 @@ Deno.serve(async (req) => {
       const state = btoa(JSON.stringify(stateData));
       hubspotAuthUrl.searchParams.set('state', state);
       
+      console.log('Storing state in database for validation');
+      
+      // Initialize Supabase client
+      const supabase = createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!, {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false,
+        },
+      });
+      
+      // Store state in database for server-side validation
+      const { error: stateError } = await supabase
+        .from('oauth_states')
+        .insert({
+          state_value: state,
+          client_state: clientState,
+          frontend_url: cleanFrontendUrl,
+        });
+      
+      if (stateError) {
+        console.error('Failed to store OAuth state:', stateError);
+        throw new Error('Failed to initialize OAuth flow');
+      }
+      
       console.log('Redirecting to HubSpot OAuth');
       
       return new Response(null, {

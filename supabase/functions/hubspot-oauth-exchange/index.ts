@@ -38,32 +38,77 @@ Deno.serve(async (req) => {
     const code = url.searchParams.get('code');
     const state = url.searchParams.get('state');
 
-    // Hent miljøvariabler
     const appBaseUrl = Deno.env.get('APP_BASE_URL') || '';
     const clientId = Deno.env.get('HUBSPOT_CLIENT_ID');
     const clientSecret = Deno.env.get('HUBSPOT_CLIENT_SECRET');
     const redirectUri = Deno.env.get('HUBSPOT_REDIRECT_URI');
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
     if (!code || !state) {
+      console.error('Missing code or state parameter');
       return new Response(null, {
         status: 302,
         headers: {
-          'Location': `${appBaseUrl}/auth/hubspot/callback?error=hubspot_oauth_failed`,
+          'Location': `${appBaseUrl}/auth/hubspot/callback?error=missing_parameters`,
         },
       });
     }
 
     if (!clientId || !clientSecret || !redirectUri || !appBaseUrl) {
-      console.error('Missing HubSpot credentials or APP_BASE_URL');
+      console.error('Missing required environment variables');
       return new Response(null, {
         status: 302,
         headers: {
-          'Location': `${appBaseUrl}/auth/hubspot/callback?error=hubspot_oauth_failed`,
+          'Location': `${appBaseUrl}/auth/hubspot/callback?error=server_configuration`,
         },
       });
     }
 
-    // Token-bytte med HubSpot
+    console.log('Validating OAuth state');
+
+    // Initialize Supabase client
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // Validate state against database
+    const { data: stateData, error: stateError } = await supabase
+      .from('oauth_states')
+      .select('*')
+      .eq('state_value', state)
+      .eq('used', false)
+      .maybeSingle();
+
+    if (stateError || !stateData) {
+      console.error('Invalid or expired OAuth state:', stateError);
+      return new Response(null, {
+        status: 302,
+        headers: {
+          'Location': `${appBaseUrl}/auth/hubspot/callback?error=state_mismatch`,
+        },
+      });
+    }
+
+    // Check if state is expired
+    if (new Date(stateData.expires_at) < new Date()) {
+      console.error('OAuth state expired');
+      await supabase.from('oauth_states').delete().eq('id', stateData.id);
+      return new Response(null, {
+        status: 302,
+        headers: {
+          'Location': `${appBaseUrl}/auth/hubspot/callback?error=state_expired`,
+        },
+      });
+    }
+
+    // Mark state as used
+    await supabase
+      .from('oauth_states')
+      .update({ used: true })
+      .eq('id', stateData.id);
+
+    console.log('State validated successfully');
+
+    // Token exchange with HubSpot
     const tokenResponse = await fetch('https://api.hubapi.com/oauth/v1/token', {
       method: 'POST',
       headers: {
@@ -83,7 +128,7 @@ Deno.serve(async (req) => {
       return new Response(null, {
         status: 302,
         headers: {
-          'Location': `${appBaseUrl}/auth/hubspot/callback?error=hubspot_oauth_failed`,
+          'Location': `${appBaseUrl}/auth/hubspot/callback?error=token_exchange_failed`,
         },
       });
     }
@@ -91,70 +136,204 @@ Deno.serve(async (req) => {
     const tokenData = await tokenResponse.json();
     const { access_token, refresh_token, expires_in } = tokenData;
 
-    // Hent brukerinfo fra HubSpot
+    // Fetch user info from HubSpot
     const userInfoResponse = await fetch('https://api.hubapi.com/oauth/v1/access-tokens/' + access_token);
     const userInfo = await userInfoResponse.json();
+    const portalId = userInfo.hub_id.toString();
+    const hubspotUserId = userInfo.user_id.toString();
+    const userEmail = userInfo.user || `user${hubspotUserId}@hubspot.local`;
 
-    // Beregn utløpstidspunkt
+    console.log('HubSpot user info:', { portalId, hubspotUserId, userEmail });
+
+    // Calculate expiration time
     const expiresAt = new Date(Date.now() + expires_in * 1000).toISOString();
 
-    // Lagre i Supabase
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    // Upsert tenant with portal ID
+    const { data: tenant, error: tenantError } = await supabase
+      .from('tenants')
+      .upsert(
+        {
+          portal_id: portalId,
+          hubspot_portal_id: portalId,
+          company_name: `HubSpot Portal ${portalId}`,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'portal_id' }
+      )
+      .select()
+      .single();
 
-    // Hent auth header fra request
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      console.error('No authorization header');
+    if (tenantError || !tenant) {
+      console.error('Tenant upsert error:', tenantError);
       return new Response(null, {
         status: 302,
         headers: {
-          'Location': `${appBaseUrl}/auth/hubspot/callback?error=hubspot_oauth_failed`,
+          'Location': `${appBaseUrl}/auth/hubspot/callback?error=tenant_creation_failed`,
         },
       });
     }
 
-    // Verifiser bruker
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+    console.log('Tenant upserted:', tenant.id);
 
-    if (userError || !user) {
-      console.error('User verification failed:', userError);
-      return new Response(null, {
-        status: 302,
-        headers: {
-          'Location': `${appBaseUrl}/auth/hubspot/callback?error=hubspot_oauth_failed`,
-        },
-      });
-    }
+    // Check if this is the first user in the tenant
+    const { data: existingUsers } = await supabase
+      .from('users')
+      .select('id')
+      .eq('tenant_id', tenant.id)
+      .limit(1);
 
-    // Lagre tokens
-    const { error: insertError } = await supabase
-      .from('hubspot_tokens')
-      .upsert({
-        user_id: user.id,
-        access_token,
-        refresh_token,
-        expires_at: expiresAt,
-        hubspot_user: userInfo.user,
-      });
+    const isFirstUser = !existingUsers || existingUsers.length === 0;
+    const initialRole = isFirstUser ? 'org_admin' : 'sales_rep';
+
+    // Upsert user
+    let user;
+    const { data: insertedUser, error: insertError } = await supabase
+      .from('users')
+      .insert({
+        tenant_id: tenant.id,
+        email: userEmail,
+        hubspot_user_id: hubspotUserId,
+        hs_owner_id: hubspotUserId,
+        updated_at: new Date().toISOString(),
+      })
+      .select()
+      .single();
 
     if (insertError) {
-      console.error('Failed to store tokens:', insertError);
+      if (insertError.code === '23505') {
+        // User exists, update hs fields only
+        const { data: updatedUser, error: updateError } = await supabase
+          .from('users')
+          .update({
+            hubspot_user_id: hubspotUserId,
+            hs_owner_id: hubspotUserId,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('tenant_id', tenant.id)
+          .eq('email', userEmail)
+          .select()
+          .single();
+
+        if (updateError) {
+          console.error('User update error:', updateError);
+          return new Response(null, {
+            status: 302,
+            headers: {
+              'Location': `${appBaseUrl}/auth/hubspot/callback?error=user_update_failed`,
+            },
+          });
+        }
+        user = updatedUser;
+      } else {
+        console.error('User insert error:', insertError);
+        return new Response(null, {
+          status: 302,
+          headers: {
+            'Location': `${appBaseUrl}/auth/hubspot/callback?error=user_creation_failed`,
+          },
+        });
+      }
+    } else {
+      user = insertedUser;
+
+      // Assign role for new user
+      await supabase
+        .from('user_roles')
+        .insert({
+          user_id: user.id,
+          tenant_id: tenant.id,
+          role: initialRole,
+        });
+
+      console.log('New user created with role:', initialRole);
+    }
+
+    console.log('User processed:', user.id);
+
+    // Store HubSpot tokens tied to tenant
+    const { error: tokenError } = await supabase
+      .from('hubspot_tokens')
+      .upsert(
+        {
+          tenant_id: tenant.id,
+          access_token,
+          refresh_token,
+          expires_at: expiresAt,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'tenant_id' }
+      );
+
+    if (tokenError) {
+      console.error('Token storage error:', tokenError);
       return new Response(null, {
         status: 302,
         headers: {
-          'Location': `${appBaseUrl}/auth/hubspot/callback?error=hubspot_oauth_failed`,
+          'Location': `${appBaseUrl}/auth/hubspot/callback?error=token_storage_failed`,
         },
       });
     }
 
-    // Vellykket - redirect
+    console.log('HubSpot tokens stored for tenant:', tenant.id);
+
+    // Create session JWT
+    const sessionPayload = {
+      tenant_id: tenant.id,
+      user_id: user.id,
+      email: userEmail,
+      exp: Math.floor(Date.now() / 1000) + (60 * 60 * 24 * 7), // 7 days
+    };
+
+    const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+    const payload = btoa(JSON.stringify(sessionPayload));
+    const jwtSecret = supabaseKey;
+
+    const encoder = new TextEncoder();
+    const data = encoder.encode(`${header}.${payload}`);
+    const keyData = encoder.encode(jwtSecret);
+    const cryptoKey = await crypto.subtle.importKey(
+      'raw',
+      keyData,
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign']
+    );
+    const signatureBuffer = await crypto.subtle.sign('HMAC', cryptoKey, data);
+    const signature = btoa(String.fromCharCode(...new Uint8Array(signatureBuffer)))
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=/g, '');
+
+    const sessionToken = `${header}.${payload}.${signature}`;
+
+    // Generate unique session key
+    const sessionKey = crypto.randomUUID();
+
+    // Save session to database
+    const { error: sessionError } = await supabase
+      .from('auth_sessions')
+      .insert({
+        session_key: sessionKey,
+        session_token: sessionToken
+      });
+
+    if (sessionError) {
+      console.error('Failed to save session:', sessionError);
+      return new Response(null, {
+        status: 302,
+        headers: {
+          'Location': `${appBaseUrl}/auth/hubspot/callback?error=session_creation_failed`,
+        },
+      });
+    }
+
+    console.log('Session created, redirecting to callback with session_key and state');
+
+    // Redirect to callback with session_key and original client_state
     return new Response(null, {
       status: 302,
       headers: {
-        'Location': `${appBaseUrl}/auth/hubspot/callback?ok=1`,
+        'Location': `${appBaseUrl}/auth/hubspot/callback?ok=1&session_key=${sessionKey}&state=${stateData.client_state}`,
       },
     });
 
@@ -164,7 +343,7 @@ Deno.serve(async (req) => {
     return new Response(null, {
       status: 302,
       headers: {
-        'Location': `${appBaseUrl}/auth/hubspot/callback?error=hubspot_oauth_failed`,
+        'Location': `${appBaseUrl}/auth/hubspot/callback?error=unexpected_error`,
       },
     });
   }
