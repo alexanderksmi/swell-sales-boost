@@ -114,51 +114,76 @@ const Index = () => {
     }
   }, [navigate, toast]);
 
-  const handleHubSpotLogin = () => {
-    const width = 600;
-    const height = 700;
-    const left = window.screen.width / 2 - width / 2;
-    const top = window.screen.height / 2 - height / 2;
-    
-    // Build URL to open popup on same origin first
-    const frontendUrl = encodeURIComponent(window.location.origin);
-    const startUrl = `${window.location.origin}/auth/hubspot/start?frontend_url=${frontendUrl}`;
-    
-    console.log('[Frontend] Opening OAuth popup on same origin');
-    
-    // Open popup to same origin page (better security and UX)
-    const newPopup = window.open(
-      startUrl,
-      'Swell - HubSpot Autentisering',
-      `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
-    );
-
-    if (!newPopup) {
-      // Popup was blocked - fallback to full redirect
-      toast({
-        title: "Popup blokkert",
-        description: "Omdirigerer til innlogging i samme vindu...",
-      });
-      
-      setTimeout(() => {
-        window.location.href = startUrl;
-      }, 1000);
-      return;
-    }
-
-    // Store popup reference globally
-    (window as any).__swellPopup = newPopup;
-    setPopup(newPopup);
+  const handleHubSpotLogin = async () => {
     setIsLoggingIn(true);
-
-    // Monitor popup closure to reset loading state
-    const checkPopup = setInterval(() => {
-      if (newPopup.closed) {
-        clearInterval(checkPopup);
-        setIsLoggingIn(false);
-        (window as any).__swellPopup = null;
+    
+    try {
+      // Fetch authorize URL from server
+      const frontendUrl = encodeURIComponent(window.location.origin);
+      const startUrl = `${EDGE_ORIGIN}/functions/v1/hubspot-auth/start?frontend_url=${frontendUrl}`;
+      
+      console.log('[Frontend] Fetching authorize URL from server');
+      
+      const response = await fetch(startUrl);
+      if (!response.ok) {
+        throw new Error('Failed to get authorize URL from server');
       }
-    }, 500);
+      
+      const data = await response.json();
+      const authorizeUrl = data.authorizeUrl;
+      
+      if (!authorizeUrl) {
+        throw new Error('No authorize URL received from server');
+      }
+      
+      console.log('[Frontend] Got authorize URL, opening popup');
+      
+      const width = 600;
+      const height = 700;
+      const left = window.screen.width / 2 - width / 2;
+      const top = window.screen.height / 2 - height / 2;
+      
+      // Open popup with authorize URL
+      const newPopup = window.open(
+        authorizeUrl,
+        'Swell - HubSpot Autentisering',
+        `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
+      );
+
+      if (!newPopup) {
+        // Popup was blocked - fallback to full redirect
+        toast({
+          title: "Popup blokkert",
+          description: "Omdirigerer til innlogging i samme vindu...",
+        });
+        
+        setTimeout(() => {
+          window.location.href = authorizeUrl;
+        }, 1000);
+        return;
+      }
+
+      // Store popup reference globally
+      (window as any).__swellPopup = newPopup;
+      setPopup(newPopup);
+
+      // Monitor popup closure to reset loading state
+      const checkPopup = setInterval(() => {
+        if (newPopup.closed) {
+          clearInterval(checkPopup);
+          setIsLoggingIn(false);
+          (window as any).__swellPopup = null;
+        }
+      }, 500);
+    } catch (error) {
+      console.error('[Frontend] Failed to start OAuth:', error);
+      toast({
+        title: "Innlogging feilet",
+        description: "Kunne ikke starte innlogging. Prøv igjen.",
+        variant: "destructive"
+      });
+      setIsLoggingIn(false);
+    }
   };
   const features = [
     {

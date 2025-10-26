@@ -327,13 +327,13 @@ Deno.serve(async (req) => {
       });
     }
 
-    console.log('Session created, redirecting to callback with session_key and state');
+    console.log('Session created, redirecting to callback with session_key');
 
-    // Redirect to callback with session_key and original client_state
+    // Redirect to callback with session_key
     return new Response(null, {
       status: 302,
       headers: {
-        'Location': `${appBaseUrl}/auth/hubspot/callback?ok=1&session_key=${sessionKey}&state=${stateData.client_state}`,
+        'Location': `${appBaseUrl}/auth/hubspot/callback?ok=1&session_key=${sessionKey}`,
       },
     });
 
