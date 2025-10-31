@@ -105,37 +105,37 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Fetch fresh HubSpot data
-    console.log('Fetching fresh HubSpot data...');
-    const syncResponse = await fetch(
-      `${SUPABASE_URL}/functions/v1/sync-hubspot-data`,
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ tenant_id }),
-      }
-    );
-
-    if (!syncResponse.ok) {
-      throw new Error('Failed to sync HubSpot data');
-    }
-
-    const syncData = await syncResponse.json();
-    const { deals } = syncData;
-
-    // Fetch ALL users for owner matching
-    const { data: activeUsers, error: usersError } = await supabase
-      .from('users')
-      .select('id, hubspot_user_id, hs_owner_id, full_name, email, is_active')
-      .eq('tenant_id', tenant_id);
+    // Fetch open deals directly from database
+    console.log('Fetching open deals from database...');
+    const { data: openDealsData, error: dealsError } = await supabase
+      .from('deals')
+      .select(`
+        id,
+        hubspot_deal_id,
+        dealname,
+        amount,
+        pipeline,
+        dealstage,
+        hubspot_owner_id,
+        owner_id,
+        hs_is_closed,
+        users (
+          id,
+          full_name,
+          email,
+          hs_owner_id,
+          is_active
+        )
+      `)
+      .eq('tenant_id', tenant_id)
+      .eq('hs_is_closed', false);
     
-    if (usersError) {
-      console.error('Failed to fetch users:', usersError);
-      throw new Error('Failed to fetch users');
+    if (dealsError) {
+      console.error('Failed to fetch deals:', dealsError);
+      throw new Error('Failed to fetch deals from database');
     }
+    
+    console.log(`Fetched ${openDealsData?.length || 0} open deals from database`);
     
     // Fetch team members if team filter is specified
     let teamUserIds: Set<string> | null = null;
@@ -175,82 +175,46 @@ Deno.serve(async (req) => {
       }
     }
     
+    // Filter deals by team if specified
+    const filteredDeals = teamUserIds 
+      ? openDealsData?.filter(d => d.owner_id && teamUserIds.has(d.owner_id))
+      : openDealsData;
     
-    const activeCount = activeUsers?.filter(u => u.is_active).length || 0;
-    console.log(`Found ${activeUsers?.length || 0} total users (${activeCount} active)`);
+    console.log(`Processing ${filteredDeals?.length || 0} deals (after team filter)`);
     
-    // Create a map of HubSpot owner IDs to user info (ALL users for deal matching)
-    const ownerMap = new Map(
-      activeUsers?.map(u => [String(u.hs_owner_id), u]) || []
-    );
-    
-    console.log(`OwnerMap keys (first 10):`, Array.from(ownerMap.keys()).slice(0, 10));
-    console.log(`OwnerMap size: ${ownerMap.size}`);
-
-    // Fetch closed stages to filter out
-    const { data: dealStagesData } = await supabase
-      .from('org_defaults')
-      .select('setting_value')
-      .eq('tenant_id', tenant_id)
-      .eq('setting_key', 'closed_deal_stages')
-      .maybeSingle();
-
-    const closedStages = dealStagesData?.setting_value?.stages || ['closedwon', 'closedlost'];
-
-    // Filter out closed deals
-    let openDeals: Deal[] = deals.filter(
-      (d: Deal) => !closedStages.some((stage: string) => 
-        d.stage.toLowerCase().includes(stage.toLowerCase())
-      )
-    );
-
-    console.log(`Processing ${openDeals.length} open deals`);
-    
-    // Log first few owner_ids from deals
-    const dealOwnerIds = openDeals.map(d => d.properties.hubspot_owner_id).filter(Boolean);
-    console.log(`Deal owner_ids (first 10):`, dealOwnerIds.slice(0, 10));
-    console.log(`Deal owner_ids types:`, dealOwnerIds.slice(0, 3).map(id => `${id} (${typeof id})`));
-
     // Group by owner and find largest deal per owner
-    const ownerDeals = new Map<string, { maxDeal: Deal; totalPipeline: number }>();
+    const ownerDeals = new Map<string, { maxDeal: any; user: any }>();
 
-    openDeals.forEach((deal: Deal) => {
-      const ownerId = String(deal.properties.hubspot_owner_id);
-      if (!ownerId) return;
-
-      const existing = ownerDeals.get(ownerId);
+    filteredDeals?.forEach((deal) => {
+      if (!deal.owner_id || !deal.users) return;
       
-      if (!existing || deal.amount > existing.maxDeal.amount) {
-        ownerDeals.set(ownerId, {
-          maxDeal: deal,
-          totalPipeline: (existing?.totalPipeline || 0) + deal.amount,
+      // users is returned as a single object (not array) since it's a foreign key relationship
+      const user = Array.isArray(deal.users) ? deal.users[0] : deal.users;
+      if (!user || !user.is_active) return; // Skip inactive users
+      
+      const existing = ownerDeals.get(deal.owner_id);
+      const dealAmount = parseFloat(String(deal.amount || 0));
+      
+      if (!existing || dealAmount > parseFloat(String(existing.maxDeal.amount || 0))) {
+        ownerDeals.set(deal.owner_id, {
+          maxDeal: {
+            id: deal.hubspot_deal_id,
+            name: deal.dealname,
+            amount: dealAmount,
+          },
+          user,
         });
-      } else {
-        existing.totalPipeline += deal.amount;
       }
     });
 
-    // Build leaderboard entries - filter by team membership if specified
+    // Build leaderboard entries
     const entries: LeaderboardEntry[] = [];
     
     ownerDeals.forEach((data, ownerId) => {
-      const user = ownerMap.get(ownerId);
-      
-      if (!user) {
-        console.log(`Skipping inactive/unknown owner: ${ownerId}`);
-        return;
-      }
-      
-      // If team filter is active, only include users in the team
-      if (teamUserIds && !teamUserIds.has(user.id)) {
-        console.log(`Skipping user ${user.full_name} (not in selected team)`);
-        return;
-      }
-      
       entries.push({
         owner_id: ownerId,
-        owner_name: user.full_name || 'Unknown',
-        owner_email: user.email || '',
+        owner_name: data.user.full_name || 'Unknown',
+        owner_email: data.user.email || '',
         largest_deal_amount: data.maxDeal.amount,
         largest_deal_name: data.maxDeal.name,
         rank: 0, // Will be set after sorting

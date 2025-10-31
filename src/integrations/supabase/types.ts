@@ -35,6 +35,175 @@ export type Database = {
         }
         Relationships: []
       }
+      contacts: {
+        Row: {
+          created_at: string
+          email: string | null
+          firstname: string | null
+          hubspot_contact_id: string
+          id: string
+          lastname: string | null
+          tenant_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          email?: string | null
+          firstname?: string | null
+          hubspot_contact_id: string
+          id?: string
+          lastname?: string | null
+          tenant_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          email?: string | null
+          firstname?: string | null
+          hubspot_contact_id?: string
+          id?: string
+          lastname?: string | null
+          tenant_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contacts_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      deal_stage_changes: {
+        Row: {
+          changed_at: string
+          deal_id: string
+          from_stage: string
+          id: string
+          owner_id: string | null
+          tenant_id: string
+          to_stage: string
+        }
+        Insert: {
+          changed_at?: string
+          deal_id: string
+          from_stage: string
+          id?: string
+          owner_id?: string | null
+          tenant_id: string
+          to_stage: string
+        }
+        Update: {
+          changed_at?: string
+          deal_id?: string
+          from_stage?: string
+          id?: string
+          owner_id?: string | null
+          tenant_id?: string
+          to_stage?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "deal_stage_changes_deal_id_fkey"
+            columns: ["deal_id"]
+            isOneToOne: false
+            referencedRelation: "deals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "deal_stage_changes_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "deal_stage_changes_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      deals: {
+        Row: {
+          amount: number | null
+          closedate: string | null
+          contact_id: string | null
+          created_at: string
+          dealname: string | null
+          dealstage: string | null
+          hs_is_closed: boolean | null
+          hs_lastmodifieddate: string | null
+          hubspot_deal_id: string
+          hubspot_owner_id: string | null
+          id: string
+          owner_id: string | null
+          pipeline: string | null
+          tenant_id: string
+          updated_at: string
+        }
+        Insert: {
+          amount?: number | null
+          closedate?: string | null
+          contact_id?: string | null
+          created_at?: string
+          dealname?: string | null
+          dealstage?: string | null
+          hs_is_closed?: boolean | null
+          hs_lastmodifieddate?: string | null
+          hubspot_deal_id: string
+          hubspot_owner_id?: string | null
+          id?: string
+          owner_id?: string | null
+          pipeline?: string | null
+          tenant_id: string
+          updated_at?: string
+        }
+        Update: {
+          amount?: number | null
+          closedate?: string | null
+          contact_id?: string | null
+          created_at?: string
+          dealname?: string | null
+          dealstage?: string | null
+          hs_is_closed?: boolean | null
+          hs_lastmodifieddate?: string | null
+          hubspot_deal_id?: string
+          hubspot_owner_id?: string | null
+          id?: string
+          owner_id?: string | null
+          pipeline?: string | null
+          tenant_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "deals_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "deals_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "deals_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hubspot_tokens: {
         Row: {
           access_token: string

@@ -21,6 +21,15 @@ interface HubSpotOwner {
   }>;
 }
 
+interface HubSpotContact {
+  id: string;
+  properties: {
+    email: string;
+    firstname: string;
+    lastname: string;
+  };
+}
+
 interface HubSpotDeal {
   id: string;
   properties: {
@@ -31,6 +40,12 @@ interface HubSpotDeal {
     closedate: string;
     hs_lastmodifieddate: string;
     hubspot_owner_id: string;
+    hs_is_closed: string;
+  };
+  associations?: {
+    contacts?: {
+      results: Array<{ id: string }>;
+    };
   };
 }
 
@@ -412,27 +427,242 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Fetch deals from HubSpot
-    console.log('Fetching deals from HubSpot...');
-    const dealsResponse = await fetchWithRetry(
-      'https://api.hubapi.com/crm/v3/objects/deals?limit=100&properties=dealname,amount,pipeline,dealstage,closedate,hs_lastmodifieddate,hubspot_owner_id',
-      {
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-      }
-    );
-
-    if (!dealsResponse.ok) {
-      const error = await dealsResponse.text();
-      throw new Error(`Failed to fetch deals: ${error}`);
-    }
-
-    const dealsData = await dealsResponse.json();
-    const deals: HubSpotDeal[] = dealsData.results || [];
+    // =============== STEP 1: SYNC CONTACTS ===============
+    console.log('\n=== Syncing Contacts ===');
     
-    console.log(`Fetched ${deals.length} deals`);
+    const fetchAllContacts = async (): Promise<HubSpotContact[]> => {
+      let allContacts: HubSpotContact[] = [];
+      let after: string | undefined;
+      
+      do {
+        const url = new URL('https://api.hubapi.com/crm/v3/objects/contacts');
+        url.searchParams.append('limit', '100');
+        url.searchParams.append('properties', 'email,firstname,lastname');
+        if (after) url.searchParams.append('after', after);
+        
+        const response = await fetchWithRetry(url.toString(), {
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+        });
+        
+        if (!response.ok) {
+          const error = await response.text();
+          throw new Error(`Failed to fetch contacts: ${error}`);
+        }
+        
+        const data = await response.json();
+        allContacts = allContacts.concat(data.results || []);
+        after = data.paging?.next?.after;
+        
+        console.log(`Fetched ${data.results?.length || 0} contacts (total: ${allContacts.length})`);
+      } while (after);
+      
+      return allContacts;
+    };
+    
+    const allContacts = await fetchAllContacts();
+    console.log(`Total contacts fetched: ${allContacts.length}`);
+    
+    // Upsert contacts to database
+    const contactIdMapping = new Map<string, string>(); // HubSpot contact ID -> DB contact UUID
+    
+    for (const contact of allContacts) {
+      if (!contact.id) continue;
+      
+      const { data: existingContact } = await supabase
+        .from('contacts')
+        .select('id')
+        .eq('tenant_id', tenant_id)
+        .eq('hubspot_contact_id', contact.id)
+        .maybeSingle();
+      
+      if (existingContact) {
+        await supabase
+          .from('contacts')
+          .update({
+            email: contact.properties.email,
+            firstname: contact.properties.firstname,
+            lastname: contact.properties.lastname,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', existingContact.id);
+        
+        contactIdMapping.set(contact.id, existingContact.id);
+      } else {
+        const { data: newContact } = await supabase
+          .from('contacts')
+          .insert({
+            tenant_id,
+            hubspot_contact_id: contact.id,
+            email: contact.properties.email,
+            firstname: contact.properties.firstname,
+            lastname: contact.properties.lastname,
+          })
+          .select('id')
+          .single();
+        
+        if (newContact) {
+          contactIdMapping.set(contact.id, newContact.id);
+        }
+      }
+    }
+    
+    console.log(`Synced ${contactIdMapping.size} contacts`);
+
+    // =============== STEP 2: SYNC DEALS ===============
+    console.log('\n=== Syncing Deals ===');
+    
+    const fetchAllDeals = async (): Promise<HubSpotDeal[]> => {
+      let allDeals: HubSpotDeal[] = [];
+      let after: string | undefined;
+      
+      do {
+        const response = await fetchWithRetry(
+          'https://api.hubapi.com/crm/v3/objects/deals/search',
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              limit: 100,
+              after,
+              properties: [
+                'dealname',
+                'amount',
+                'pipeline',
+                'dealstage',
+                'closedate',
+                'hs_lastmodifieddate',
+                'hubspot_owner_id',
+                'hs_is_closed'
+              ],
+              associations: ['contacts'],
+            }),
+          }
+        );
+        
+        if (!response.ok) {
+          const error = await response.text();
+          throw new Error(`Failed to fetch deals: ${error}`);
+        }
+        
+        const data = await response.json();
+        allDeals = allDeals.concat(data.results || []);
+        after = data.paging?.next?.after;
+        
+        console.log(`Fetched ${data.results?.length || 0} deals (total: ${allDeals.length})`);
+      } while (after);
+      
+      return allDeals;
+    };
+    
+    const allDeals = await fetchAllDeals();
+    console.log(`Total deals fetched: ${allDeals.length}`);
+    
+    // Create owner_id mapping from hs_owner_id
+    const { data: allUsersForMapping } = await supabase
+      .from('users')
+      .select('id, hs_owner_id')
+      .eq('tenant_id', tenant_id);
+    
+    const ownerIdMapping = new Map<string, string>(); // hs_owner_id -> user UUID
+    allUsersForMapping?.forEach(u => {
+      if (u.hs_owner_id) ownerIdMapping.set(u.hs_owner_id, u.id);
+    });
+    
+    // Sync deals to database and track stage changes
+    let stageChangesCount = 0;
+    
+    for (const deal of allDeals) {
+      if (!deal.id) continue;
+      
+      // Find owner_id
+      const ownerId = deal.properties.hubspot_owner_id 
+        ? ownerIdMapping.get(deal.properties.hubspot_owner_id) || null
+        : null;
+      
+      // Find contact_id
+      const hubspotContactId = deal.associations?.contacts?.results?.[0]?.id;
+      const contactId = hubspotContactId ? contactIdMapping.get(hubspotContactId) || null : null;
+      
+      // Check if deal exists
+      const { data: existingDeal } = await supabase
+        .from('deals')
+        .select('id, dealstage')
+        .eq('tenant_id', tenant_id)
+        .eq('hubspot_deal_id', deal.id)
+        .maybeSingle();
+      
+      const isClosed = deal.properties.hs_is_closed === 'true';
+      
+      if (existingDeal) {
+        // Check for stage change
+        if (existingDeal.dealstage && existingDeal.dealstage !== deal.properties.dealstage) {
+          await supabase
+            .from('deal_stage_changes')
+            .insert({
+              deal_id: existingDeal.id,
+              tenant_id,
+              from_stage: existingDeal.dealstage,
+              to_stage: deal.properties.dealstage,
+              owner_id: ownerId,
+            });
+          
+          stageChangesCount++;
+          console.log(`Stage change: ${deal.properties.dealname} (${existingDeal.dealstage} → ${deal.properties.dealstage})`);
+        }
+        
+        // Update deal
+        await supabase
+          .from('deals')
+          .update({
+            contact_id: contactId,
+            owner_id: ownerId,
+            hubspot_owner_id: deal.properties.hubspot_owner_id,
+            dealname: deal.properties.dealname,
+            amount: deal.properties.amount ? parseFloat(deal.properties.amount) : null,
+            pipeline: deal.properties.pipeline,
+            dealstage: deal.properties.dealstage,
+            hs_is_closed: isClosed,
+            closedate: deal.properties.closedate || null,
+            hs_lastmodifieddate: deal.properties.hs_lastmodifieddate || null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', existingDeal.id);
+      } else {
+        // Insert new deal
+        const { data: newDeal } = await supabase
+          .from('deals')
+          .insert({
+            tenant_id,
+            hubspot_deal_id: deal.id,
+            contact_id: contactId,
+            owner_id: ownerId,
+            hubspot_owner_id: deal.properties.hubspot_owner_id,
+            dealname: deal.properties.dealname,
+            amount: deal.properties.amount ? parseFloat(deal.properties.amount) : null,
+            pipeline: deal.properties.pipeline,
+            dealstage: deal.properties.dealstage,
+            hs_is_closed: isClosed,
+            closedate: deal.properties.closedate || null,
+            hs_lastmodifieddate: deal.properties.hs_lastmodifieddate || null,
+          })
+          .select('id')
+          .single();
+        
+        if (newDeal) {
+          console.log(`Inserted new deal: ${deal.properties.dealname}`);
+        }
+      }
+    }
+    
+    console.log(`Synced ${allDeals.length} deals with ${stageChangesCount} stage changes`);
+    
+    const deals: HubSpotDeal[] = allDeals;
 
     // Store sync metadata
     const syncResult = {
