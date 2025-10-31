@@ -105,6 +105,35 @@ Deno.serve(async (req) => {
       );
     }
 
+    // Check if we have any deals in database - if not, trigger sync first
+    const { count: dealsCount } = await supabase
+      .from('deals')
+      .select('*', { count: 'exact', head: true })
+      .eq('tenant_id', tenant_id);
+    
+    if (dealsCount === 0) {
+      console.log('No deals in database, triggering HubSpot sync...');
+      
+      const syncResponse = await fetch(
+        `${SUPABASE_URL}/functions/v1/sync-hubspot-data`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ tenant_id }),
+        }
+      );
+
+      if (!syncResponse.ok) {
+        console.error('Failed to sync HubSpot data');
+        // Continue anyway - maybe there really is no data
+      } else {
+        console.log('HubSpot sync completed successfully');
+      }
+    }
+    
     // Fetch open deals directly from database
     console.log('Fetching open deals from database...');
     const { data: openDealsData, error: dealsError } = await supabase
