@@ -139,10 +139,9 @@ Deno.serve(async (req) => {
       throw new Error('Max retries exceeded');
     };
 
-    console.log('Fetching ALL owners from HubSpot (including archived)...');
-    // Fetch archived owners too since they might still have active deals
-    const ownersResponse = await fetchWithRetry(
-      'https://api.hubapi.com/crm/v3/owners?limit=100',
+    console.log('Fetching active owners from HubSpot...');
+    const activeOwnersResponse = await fetchWithRetry(
+      'https://api.hubapi.com/crm/v3/owners?limit=500&archived=false',
       {
         headers: {
           'Authorization': `Bearer ${accessToken}`,
@@ -151,13 +150,35 @@ Deno.serve(async (req) => {
       }
     );
 
-    if (!ownersResponse.ok) {
-      const error = await ownersResponse.text();
-      throw new Error(`Failed to fetch owners: ${error}`);
+    if (!activeOwnersResponse.ok) {
+      const error = await activeOwnersResponse.text();
+      throw new Error(`Failed to fetch active owners: ${error}`);
     }
 
-    const ownersData = await ownersResponse.json();
-    const owners: HubSpotOwner[] = ownersData.results || [];
+    const activeOwnersData = await activeOwnersResponse.json();
+    const activeOwners: HubSpotOwner[] = activeOwnersData.results || [];
+    
+    console.log(`Fetched ${activeOwners.length} active owners`);
+
+    // Fetch archived owners
+    console.log('Fetching archived owners from HubSpot...');
+    const archivedOwnersResponse = await fetchWithRetry(
+      'https://api.hubapi.com/crm/v3/owners?limit=500&archived=true',
+      {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    const archivedOwnersData = archivedOwnersResponse.ok ? await archivedOwnersResponse.json() : { results: [] };
+    const archivedOwners: HubSpotOwner[] = archivedOwnersData.results || [];
+    
+    console.log(`Fetched ${archivedOwners.length} archived owners`);
+
+    // Combine for team syncing
+    const owners = [...activeOwners, ...archivedOwners];
     
     console.log(`Fetched ${owners.length} owners`);
 
@@ -220,7 +241,15 @@ Deno.serve(async (req) => {
 
     // Sync users from HubSpot owners
     console.log('Syncing users...');
-    const hubspotOwnerIds = new Set<string>();
+    const activeOwnerIds = new Set<string>();
+    const archivedOwnerIds = new Set<string>();
+    
+    // Track archived owner IDs
+    for (const owner of archivedOwners) {
+      if (owner.id) {
+        archivedOwnerIds.add(owner.id);
+      }
+    }
     
     // One-time fix: Update hs_owner_id for existing users where it's null
     // This ensures all users synced before this fix get their hs_owner_id populated
@@ -241,14 +270,14 @@ Deno.serve(async (req) => {
       console.log(`✓ Fixed hs_owner_id for ${usersToFix.length} existing users`);
     }
     
-    for (const owner of owners) {
-      // Deals reference owner.id in their hubspot_owner_id property
+    for (const owner of activeOwners) {
+      // Only process active owners - deals reference owner.id in their hubspot_owner_id property
       if (!owner.id || !owner.email) {
         console.log(`Skipping owner without id or email: ${JSON.stringify(owner)}`);
         continue;
       }
       
-      hubspotOwnerIds.add(owner.id); // Track by owner.id which deals use
+      activeOwnerIds.add(owner.id); // Track by owner.id which deals use
       
       const userIdForLog = (owner.userId || owner.userIdIncludingInactive)?.toString() || 'none';
       console.log(`Processing owner: ${owner.id} (userId: ${userIdForLog}) - ${owner.email} - Teams: ${owner.teams?.map(t => t.name).join(', ') || 'none'}`);
@@ -339,9 +368,9 @@ Deno.serve(async (req) => {
       }
     }
 
-    console.log(`Synced ${hubspotOwnerIds.size} users`);
+    console.log(`Synced ${activeOwnerIds.size} active users`);
 
-    // Mark users as inactive if they're not in HubSpot anymore
+    // Mark users as inactive if they're not active in HubSpot
     const { data: allUsers } = await supabase
       .from('users')
       .select('id, hubspot_user_id, hs_owner_id, email')
@@ -350,28 +379,36 @@ Deno.serve(async (req) => {
 
     if (allUsers) {
       let deactivatedCount = 0;
-      const deactivatedUsers: Array<{ email: string; hs_owner_id: string | null }> = [];
+      const deactivatedUsers: Array<{ email: string; hs_owner_id: string | null; reason: string }> = [];
       for (const user of allUsers) {
-        // Check if user's hs_owner_id (owner.id) is still in active owners
-        if (user.hs_owner_id && !hubspotOwnerIds.has(user.hs_owner_id)) {
+        // Deactivate if: hs_owner_id not in active owners AND (in archived owners OR not in any set)
+        if (user.hs_owner_id && !activeOwnerIds.has(user.hs_owner_id)) {
+          const isArchived = archivedOwnerIds.has(user.hs_owner_id);
+          const reason = isArchived ? 'archived in HubSpot' : 'not found in HubSpot';
+          
           const { error: updateError } = await supabase
             .from('users')
             .update({ is_active: false, updated_at: new Date().toISOString() })
             .eq('id', user.id);
           
           if (updateError) {
-            console.error(`Failed to deactivate user ${user.hubspot_user_id}:`, updateError);
+            console.error(`Failed to deactivate user ${user.email}:`, updateError);
           } else {
             deactivatedCount++;
-            deactivatedUsers.push({ email: user.email, hs_owner_id: user.hs_owner_id });
-            console.log(`✓ Deactivated user: ${user.hubspot_user_id} (id: ${user.id})`);
+            deactivatedUsers.push({ email: user.email, hs_owner_id: user.hs_owner_id, reason });
+            console.log(`✓ Deactivated user: ${user.email} (hs_owner_id: ${user.hs_owner_id}) - ${reason}`);
           }
         }
       }
-      console.log(`Total deactivated users: ${deactivatedCount}`);
+      console.log('\n=== Sync Summary ===');
+      console.log(`Active owners: ${activeOwnerIds.size}`);
+      console.log(`Archived owners: ${archivedOwnerIds.size}`);
+      console.log(`Deactivated users: ${deactivatedCount}`);
       if (deactivatedUsers.length > 0) {
-        console.log(`First ${Math.min(5, deactivatedUsers.length)} deactivated users:`, 
-          deactivatedUsers.slice(0, 5).map(u => `${u.email} (hs_owner_id: ${u.hs_owner_id})`).join(', '));
+        console.log(`First ${Math.min(5, deactivatedUsers.length)} deactivated users:`);
+        deactivatedUsers.slice(0, 5).forEach(u => {
+          console.log(`  ${u.email} (hs_owner_id: ${u.hs_owner_id}) - ${u.reason}`);
+        });
       }
     }
 
