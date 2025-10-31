@@ -13,6 +13,8 @@ interface HubSpotOwner {
   email: string;
   firstName: string;
   lastName: string;
+  userId?: number;
+  userIdIncludingInactive?: number;
   teams?: Array<{
     id: string;
     name: string;
@@ -157,18 +159,6 @@ Deno.serve(async (req) => {
     const owners: HubSpotOwner[] = ownersData.results || [];
     
     console.log(`Fetched ${owners.length} owners`);
-    
-    // Log first 3 owner objects with all their keys to understand the structure
-    if (owners.length > 0) {
-      console.log('=== OWNER 1 KEYS ===', Object.keys(owners[0]));
-      console.log('=== OWNER 1 ===', owners[0]);
-    }
-    if (owners.length > 1) {
-      console.log('=== OWNER 2 ===', owners[1]);
-    }
-    if (owners.length > 2) {
-      console.log('=== OWNER 3 ===', owners[2]);
-    }
 
     // Sync teams from HubSpot owners
     console.log('Syncing teams...');
@@ -251,20 +241,28 @@ Deno.serve(async (req) => {
     }
     
     for (const owner of owners) {
+      // userId or userIdIncludingInactive is what deals reference in hubspot_owner_id
+      const userIdString = (owner.userId || owner.userIdIncludingInactive)?.toString();
+      
       if (!owner.id || !owner.email) {
         console.log(`Skipping owner without id or email: ${JSON.stringify(owner)}`);
         continue;
       }
       
-      hubspotOwnerIds.add(owner.id);
-      console.log(`Processing owner: ${owner.id} - ${owner.email} - Teams: ${owner.teams?.map(t => t.name).join(', ') || 'none'}`);
+      if (!userIdString) {
+        console.log(`⚠️ Owner ${owner.id} (${owner.email}) has no userId - skipping`);
+        continue;
+      }
       
-      // Upsert user
+      hubspotOwnerIds.add(userIdString);
+      console.log(`Processing owner: ${owner.id} (userId: ${userIdString}) - ${owner.email} - Teams: ${owner.teams?.map(t => t.name).join(', ') || 'none'}`);
+      
+      // Upsert user - use userId as the key since that's what deals reference
       const { data: existingUser } = await supabase
         .from('users')
         .select('id')
         .eq('tenant_id', tenant_id)
-        .eq('hubspot_user_id', owner.id)
+        .eq('hubspot_user_id', userIdString)
         .maybeSingle();
 
       const fullName = `${owner.firstName || ''} ${owner.lastName || ''}`.trim() || owner.email;
@@ -278,7 +276,7 @@ Deno.serve(async (req) => {
           .update({
             email: owner.email,
             full_name: fullName,
-            hs_owner_id: owner.id, // Ensure hs_owner_id is always up to date
+            hs_owner_id: userIdString, // This is the userId that deals reference
             is_active: true,
             updated_at: new Date().toISOString(),
           })
@@ -297,8 +295,8 @@ Deno.serve(async (req) => {
           .from('users')
           .insert({
             tenant_id,
-            hubspot_user_id: owner.id,
-            hs_owner_id: owner.id,
+            hubspot_user_id: userIdString,
+            hs_owner_id: userIdString, // This is the userId that deals reference
             email: owner.email,
             full_name: fullName,
             is_active: true,
