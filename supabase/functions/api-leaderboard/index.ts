@@ -36,7 +36,9 @@ interface Deal {
   stage: string;
   close_date: string;
   last_modified: string;
-  owner_id: string;
+  properties: {
+    hubspot_owner_id: string;
+  };
 }
 
 interface LeaderboardEntry {
@@ -182,7 +184,7 @@ Deno.serve(async (req) => {
     
     // Create a map of HubSpot owner IDs to user info
     const ownerMap = new Map(
-      activeUsers?.map(u => [u.hs_owner_id || u.hubspot_user_id, u]) || []
+      activeUsers?.map(u => [String(u.hs_owner_id), u]) || []
     );
     
     console.log(`OwnerMap keys (first 10):`, Array.from(ownerMap.keys()).slice(0, 10));
@@ -208,7 +210,7 @@ Deno.serve(async (req) => {
     console.log(`Processing ${openDeals.length} open deals`);
     
     // Log first few owner_ids from deals
-    const dealOwnerIds = openDeals.map(d => d.owner_id).filter(Boolean);
+    const dealOwnerIds = openDeals.map(d => d.properties.hubspot_owner_id).filter(Boolean);
     console.log(`Deal owner_ids (first 10):`, dealOwnerIds.slice(0, 10));
     console.log(`Deal owner_ids types:`, dealOwnerIds.slice(0, 3).map(id => `${id} (${typeof id})`));
 
@@ -216,7 +218,7 @@ Deno.serve(async (req) => {
     const ownerDeals = new Map<string, { maxDeal: Deal; totalPipeline: number }>();
 
     openDeals.forEach((deal: Deal) => {
-      const ownerId = deal.owner_id;
+      const ownerId = String(deal.properties.hubspot_owner_id);
       if (!ownerId) return;
 
       const existing = ownerDeals.get(ownerId);

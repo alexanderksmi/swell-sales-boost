@@ -406,13 +406,21 @@ Deno.serve(async (req) => {
       owners,
       deals: deals.map(d => ({
         id: d.id,
+        properties: {
+          dealname: d.properties.dealname,
+          amount: d.properties.amount,
+          pipeline: d.properties.pipeline,
+          dealstage: d.properties.dealstage,
+          closedate: d.properties.closedate,
+          hs_lastmodifieddate: d.properties.hs_lastmodifieddate,
+          hubspot_owner_id: d.properties.hubspot_owner_id,
+        },
         name: d.properties.dealname,
         amount: parseFloat(d.properties.amount || '0'),
         pipeline: d.properties.pipeline,
         stage: d.properties.dealstage,
         close_date: d.properties.closedate,
         last_modified: d.properties.hs_lastmodifieddate,
-        owner_id: d.properties.hubspot_owner_id,
       })),
     };
 
