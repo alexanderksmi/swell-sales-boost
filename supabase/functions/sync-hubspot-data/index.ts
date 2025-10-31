@@ -56,7 +56,64 @@ Deno.serve(async (req) => {
       throw new Error('No HubSpot token found for tenant');
     }
 
-    const accessToken = tokenData.access_token;
+    let accessToken = tokenData.access_token;
+
+    // Check if token is expired and refresh if needed
+    const tokenExpiry = new Date(tokenData.expires_at);
+    const now = new Date();
+    
+    if (tokenExpiry <= now) {
+      console.log('Access token expired, refreshing...');
+      
+      const clientId = Deno.env.get('HUBSPOT_CLIENT_ID');
+      const clientSecret = Deno.env.get('HUBSPOT_CLIENT_SECRET');
+      
+      if (!clientId || !clientSecret) {
+        throw new Error('Missing HubSpot OAuth credentials');
+      }
+      
+      const refreshResponse = await fetch('https://api.hubapi.com/oauth/v1/token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+          grant_type: 'refresh_token',
+          client_id: clientId,
+          client_secret: clientSecret,
+          refresh_token: tokenData.refresh_token,
+        }),
+      });
+      
+      if (!refreshResponse.ok) {
+        const error = await refreshResponse.text();
+        throw new Error(`Token refresh failed: ${error}`);
+      }
+      
+      const refreshData = await refreshResponse.json();
+      const { access_token: newAccessToken, refresh_token: newRefreshToken, expires_in } = refreshData;
+      
+      // Update tokens in database
+      const newExpiresAt = new Date(Date.now() + expires_in * 1000).toISOString();
+      
+      const { error: updateError } = await supabase
+        .from('hubspot_tokens')
+        .update({
+          access_token: newAccessToken,
+          refresh_token: newRefreshToken,
+          expires_at: newExpiresAt,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('tenant_id', tenant_id);
+      
+      if (updateError) {
+        console.error('Failed to update tokens:', updateError);
+        throw new Error('Failed to update refreshed tokens');
+      }
+      
+      accessToken = newAccessToken;
+      console.log('Token refreshed successfully');
+    }
 
     // Fetch owners from HubSpot with retry logic
     const fetchWithRetry = async (url: string, options: RequestInit, retries = 3): Promise<Response> => {
