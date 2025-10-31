@@ -201,13 +201,23 @@ Deno.serve(async (req) => {
     const closedStages = dealStagesData?.setting_value?.stages || ['closedwon', 'closedlost'];
 
     // Filter out closed deals
-    const openDeals: Deal[] = deals.filter(
+    let openDeals: Deal[] = deals.filter(
       (d: Deal) => !closedStages.some((stage: string) => 
         d.stage.toLowerCase().includes(stage.toLowerCase())
       )
     );
 
     console.log(`Processing ${openDeals.length} open deals`);
+    
+    // Filter deals by team if team_id is specified
+    if (team_id) {
+      const teamOwnerIds = new Set(Array.from(ownerMap.keys()));
+      const dealsBeforeFilter = openDeals.length;
+      openDeals = openDeals.filter(d => 
+        teamOwnerIds.has(String(d.properties.hubspot_owner_id))
+      );
+      console.log(`Filtered deals from ${dealsBeforeFilter} to ${openDeals.length} for team ${team_id}`);
+    }
     
     // Log first few owner_ids from deals
     const dealOwnerIds = openDeals.map(d => d.properties.hubspot_owner_id).filter(Boolean);
