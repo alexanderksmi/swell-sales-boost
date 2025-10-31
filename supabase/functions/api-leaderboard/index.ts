@@ -48,9 +48,9 @@ interface LeaderboardEntry {
   rank: number;
 }
 
-// In-memory cache
+// Cache disabled to always fetch fresh data
 const cache = new Map<string, { data: any; timestamp: number }>();
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const CACHE_TTL = 0; // Cache disabled
 
 Deno.serve(async (req) => {
   const origin = req.headers.get('origin');
