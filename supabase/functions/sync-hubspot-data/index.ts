@@ -159,10 +159,18 @@ Deno.serve(async (req) => {
     console.log(`Fetched ${owners.length} owners`);
     
     // Log first 3 full owner objects to see all available ID fields
-    console.log('Sample owner objects (first 3):');
-    owners.slice(0, 3).forEach(o => {
-      console.log(JSON.stringify(o, null, 2));
-    });
+    if (owners.length > 0) {
+      console.log('=== OWNER SAMPLE 1 ===');
+      console.log(JSON.stringify(owners[0]));
+      if (owners.length > 1) {
+        console.log('=== OWNER SAMPLE 2 ===');
+        console.log(JSON.stringify(owners[1]));
+      }
+      if (owners.length > 2) {
+        console.log('=== OWNER SAMPLE 3 ===');
+        console.log(JSON.stringify(owners[2]));
+      }
+    }
 
     // Sync teams from HubSpot owners
     console.log('Syncing teams...');
