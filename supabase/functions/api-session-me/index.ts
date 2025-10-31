@@ -151,13 +151,31 @@ Deno.serve(async (req) => {
         `)
         .eq('user_id', user.id);
 
-      const teams = userTeams?.map(ut => ({
+      const userTeamsList = userTeams?.map(ut => ({
         id: (ut.teams as any).id,
         name: (ut.teams as any).name,
         description: (ut.teams as any).description,
       })) || [];
 
-      console.log('Valid session found for user:', user.email, 'with', teams.length, 'teams');
+      // Check if user is in Admin team (case-insensitive)
+      const isAdmin = userTeamsList.some(team => 
+        team.name.toLowerCase() === 'admin'
+      );
+
+      // If admin, fetch ALL teams in the tenant
+      let allTeams = userTeamsList;
+      if (isAdmin) {
+        const { data: tenantTeams } = await supabase
+          .from('teams')
+          .select('id, name, description')
+          .eq('tenant_id', user.tenant_id)
+          .order('name');
+        
+        allTeams = tenantTeams || [];
+        console.log('Admin user - fetched all', allTeams.length, 'teams in tenant');
+      }
+
+      console.log('Valid session found for user:', user.email, 'isAdmin:', isAdmin, 'teams:', allTeams.length);
       return new Response(
         JSON.stringify({
           authenticated: true,
@@ -169,7 +187,8 @@ Deno.serve(async (req) => {
             id: user.tenant_id,
             company_name: tenant?.company_name || 'Unknown Company',
           },
-          teams,
+          teams: allTeams,
+          isAdmin,
         }),
         {
           status: 200,

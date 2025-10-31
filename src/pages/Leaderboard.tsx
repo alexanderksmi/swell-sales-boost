@@ -49,6 +49,7 @@ const Leaderboard = () => {
   const [companyName, setCompanyName] = useState<string>('');
   const [teams, setTeams] = useState<Team[]>([]);
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     const fetchUserData = async () => {
@@ -75,32 +76,28 @@ const Leaderboard = () => {
         setUserId(sessionData.user.id);
         setTenantId(sessionData.tenant.id);
         setCompanyName(sessionData.tenant.company_name || '');
+        setIsAdmin(sessionData.isAdmin || false);
 
         // Get teams from session data (fetched with service role in api-session-me)
         const userTeams = sessionData.teams || [];
         setTeams(userTeams);
-        console.log('[Leaderboard] User teams from session:', userTeams);
+        console.log('[Leaderboard] User teams from session:', userTeams, 'isAdmin:', sessionData.isAdmin);
 
-        // Always set first team as default (user must be part of a team to see data)
+        // Set default team based on admin status
         if (userTeams.length > 0) {
           if (!selectedTeamId) {
-            setSelectedTeamId(userTeams[0].id);
+            // Admin can see all teams by default (null = all teams)
+            // Regular users see their first team
+            setSelectedTeamId(sessionData.isAdmin ? null : userTeams[0].id);
           }
-        } else {
+        } else if (!sessionData.isAdmin) {
           console.warn('[Leaderboard] User has no teams');
           toast.error('Du er ikke tildelt noe team');
           setLoading(false);
           return;
         }
 
-        // Only fetch leaderboard if we have a selected team
-        if (!selectedTeamId) {
-          console.log('[Leaderboard] No team selected, skipping leaderboard fetch');
-          setLoading(false);
-          return;
-        }
-
-        // Fetch leaderboard data (always with team filter)
+        // Fetch leaderboard data (with team filter, or all if admin and no team selected)
         const { data: leaderboardResponse, error: leaderboardError } = await supabase.functions.invoke(
           'api-leaderboard',
           {
@@ -147,7 +144,7 @@ const Leaderboard = () => {
   }, [navigate, selectedTeamId]);
 
   const handleTeamChange = (teamId: string) => {
-    setSelectedTeamId(teamId);
+    setSelectedTeamId(teamId === 'all' ? null : teamId);
   };
 
   const handleLogout = async () => {
@@ -200,12 +197,13 @@ const Leaderboard = () => {
           </div>
           
           <div className="flex items-center gap-4">
-            {teams.length > 1 && (
-              <Select value={selectedTeamId || ''} onValueChange={handleTeamChange}>
+            {(isAdmin || teams.length > 1) && (
+              <Select value={selectedTeamId || 'all'} onValueChange={handleTeamChange}>
                 <SelectTrigger className="w-[200px]">
                   <SelectValue placeholder="Velg team" />
                 </SelectTrigger>
                 <SelectContent>
+                  {isAdmin && <SelectItem value="all">Alle teams</SelectItem>}
                   {teams.map(team => (
                     <SelectItem key={team.id} value={team.id}>
                       {team.name}
