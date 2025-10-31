@@ -43,18 +43,30 @@ export async function authenticateWithHubSpot(code: string) {
  */
 export async function checkSession() {
   try {
-    // Get the current session to pass the access token
+    // Try to get token from Supabase auth first
     const { data: sessionData } = await supabase.auth.getSession();
-    const token = sessionData?.session?.access_token;
+    let token = sessionData?.session?.access_token;
+    
+    // Fallback to localStorage if Supabase auth doesn't have it
+    if (!token) {
+      token = localStorage.getItem('swell_session');
+      console.log('[checkSession] Using localStorage token:', !!token);
+    } else {
+      console.log('[checkSession] Using Supabase auth token');
+    }
     
     console.log('[checkSession] Token found:', !!token, token ? `length: ${token.length}` : 'none');
+    
+    if (!token) {
+      throw new Error('No session token available');
+    }
     
     // Call api-session-me with the token explicitly in the header
     const { data, error } = await supabase.functions.invoke('api-session-me', {
       method: 'GET',
-      headers: token ? {
+      headers: {
         'Authorization': `Bearer ${token}`,
-      } : {},
+      },
     });
 
     if (error) throw error;

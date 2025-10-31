@@ -83,29 +83,27 @@ const Index = () => {
           }
 
           console.log('[Frontend] Session token received, length:', data.session_token.length);
+          console.log('[Frontend] Token preview:', data.session_token.substring(0, 50) + '...');
           
-          // Set the session with Supabase auth - this makes the token available to all Supabase calls
+          // Store token in localStorage first as primary storage
+          localStorage.setItem('swell_session', data.session_token);
+          
+          // Try to set the session with Supabase auth
           const { data: sessionResult, error: authError } = await supabase.auth.setSession({
             access_token: data.session_token,
-            refresh_token: data.session_token, // Using same token for both
+            refresh_token: data.session_token,
           });
 
           if (authError) {
-            console.error('[Frontend] Failed to set Supabase session:', authError);
-            toast({
-              title: "Innlogging feilet",
-              description: "Kunne ikke etablere sesjon. Prøv igjen.",
-              variant: "destructive"
-            });
-            setIsLoggingIn(false);
-            window.history.replaceState({}, document.title, window.location.pathname);
-            return;
+            console.error('[Frontend] Supabase setSession error:', authError);
+            // Don't fail - we have localStorage fallback
+          } else {
+            console.log('[Frontend] Supabase session set:', !!sessionResult?.session);
           }
 
-          console.log('[Frontend] Supabase session established successfully, session:', !!sessionResult?.session);
-          
-          // Also store in localStorage as backup
-          localStorage.setItem('swell_session', data.session_token);
+          // Verify the session was stored
+          const { data: { session: verifySession } } = await supabase.auth.getSession();
+          console.log('[Frontend] Verified stored session:', !!verifySession, verifySession?.access_token?.substring(0, 30));
           
           // Clean up URL
           window.history.replaceState({}, document.title, window.location.pathname);
