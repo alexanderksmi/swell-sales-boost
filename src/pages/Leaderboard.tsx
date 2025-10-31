@@ -81,12 +81,26 @@ const Leaderboard = () => {
         setTeams(userTeams);
         console.log('[Leaderboard] User teams from session:', userTeams);
 
-        // Set default team if not already set
-        if (userTeams.length > 0 && !selectedTeamId) {
-          setSelectedTeamId(userTeams[0].id);
+        // Always set first team as default (user must be part of a team to see data)
+        if (userTeams.length > 0) {
+          if (!selectedTeamId) {
+            setSelectedTeamId(userTeams[0].id);
+          }
+        } else {
+          console.warn('[Leaderboard] User has no teams');
+          toast.error('Du er ikke tildelt noe team');
+          setLoading(false);
+          return;
         }
 
-        // Fetch leaderboard data
+        // Only fetch leaderboard if we have a selected team
+        if (!selectedTeamId) {
+          console.log('[Leaderboard] No team selected, skipping leaderboard fetch');
+          setLoading(false);
+          return;
+        }
+
+        // Fetch leaderboard data (always with team filter)
         const { data: leaderboardResponse, error: leaderboardError } = await supabase.functions.invoke(
           'api-leaderboard',
           {
@@ -133,7 +147,7 @@ const Leaderboard = () => {
   }, [navigate, selectedTeamId]);
 
   const handleTeamChange = (teamId: string) => {
-    setSelectedTeamId(teamId === 'all' ? null : teamId);
+    setSelectedTeamId(teamId);
   };
 
   const handleLogout = async () => {
@@ -186,13 +200,12 @@ const Leaderboard = () => {
           </div>
           
           <div className="flex items-center gap-4">
-            {teams.length > 0 && (
-              <Select value={selectedTeamId || 'all'} onValueChange={handleTeamChange}>
+            {teams.length > 1 && (
+              <Select value={selectedTeamId || ''} onValueChange={handleTeamChange}>
                 <SelectTrigger className="w-[200px]">
                   <SelectValue placeholder="Velg team" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">Alle teams</SelectItem>
                   {teams.map(team => (
                     <SelectItem key={team.id} value={team.id}>
                       {team.name}
