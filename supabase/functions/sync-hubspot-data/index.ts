@@ -257,12 +257,12 @@ Deno.serve(async (req) => {
       hubspotOwnerIds.add(userIdString);
       console.log(`Processing owner: ${owner.id} (userId: ${userIdString}) - ${owner.email} - Teams: ${owner.teams?.map(t => t.name).join(', ') || 'none'}`);
       
-      // Upsert user - use userId as the key since that's what deals reference
+      // Find existing user by email since hubspot_user_id may have old owner.id value
       const { data: existingUser } = await supabase
         .from('users')
-        .select('id')
+        .select('id, hubspot_user_id, hs_owner_id')
         .eq('tenant_id', tenant_id)
-        .eq('hubspot_user_id', userIdString)
+        .eq('email', owner.email)
         .maybeSingle();
 
       const fullName = `${owner.firstName || ''} ${owner.lastName || ''}`.trim() || owner.email;
@@ -270,13 +270,13 @@ Deno.serve(async (req) => {
       let userId: string;
       
       if (existingUser) {
-        // Update existing user
+        // Update existing user with correct userId values
         const { error: updateError } = await supabase
           .from('users')
           .update({
-            email: owner.email,
-            full_name: fullName,
+            hubspot_user_id: userIdString, // Update to userId
             hs_owner_id: userIdString, // This is the userId that deals reference
+            full_name: fullName,
             is_active: true,
             updated_at: new Date().toISOString(),
           })
@@ -287,7 +287,7 @@ Deno.serve(async (req) => {
           continue;
         }
         
-        console.log(`✓ Updated user ${owner.id} - ${fullName}`);
+        console.log(`✓ Updated user ${owner.id} (userId: ${userIdString}) - ${fullName}`);
         userId = existingUser.id;
       } else {
         // Insert new user
