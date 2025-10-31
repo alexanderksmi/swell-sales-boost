@@ -43,8 +43,18 @@ export async function authenticateWithHubSpot(code: string) {
  */
 export async function checkSession() {
   try {
+    // Get the current session to pass the access token
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData?.session?.access_token;
+    
+    console.log('[checkSession] Token found:', !!token, token ? `length: ${token.length}` : 'none');
+    
+    // Call api-session-me with the token explicitly in the header
     const { data, error } = await supabase.functions.invoke('api-session-me', {
       method: 'GET',
+      headers: token ? {
+        'Authorization': `Bearer ${token}`,
+      } : {},
     });
 
     if (error) throw error;

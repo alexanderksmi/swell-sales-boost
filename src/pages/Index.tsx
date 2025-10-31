@@ -85,7 +85,7 @@ const Index = () => {
           console.log('[Frontend] Session token received, length:', data.session_token.length);
           
           // Set the session with Supabase auth - this makes the token available to all Supabase calls
-          const { error: authError } = await supabase.auth.setSession({
+          const { data: sessionResult, error: authError } = await supabase.auth.setSession({
             access_token: data.session_token,
             refresh_token: data.session_token, // Using same token for both
           });
@@ -102,7 +102,7 @@ const Index = () => {
             return;
           }
 
-          console.log('[Frontend] Supabase session established successfully');
+          console.log('[Frontend] Supabase session established successfully, session:', !!sessionResult?.session);
           
           // Also store in localStorage as backup
           localStorage.setItem('swell_session', data.session_token);
