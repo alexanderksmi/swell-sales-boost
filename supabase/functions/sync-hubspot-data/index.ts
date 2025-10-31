@@ -344,14 +344,15 @@ Deno.serve(async (req) => {
     // Mark users as inactive if they're not in HubSpot anymore
     const { data: allUsers } = await supabase
       .from('users')
-      .select('id, hubspot_user_id, hs_owner_id')
+      .select('id, hubspot_user_id, hs_owner_id, email')
       .eq('tenant_id', tenant_id)
       .eq('is_active', true);
 
     if (allUsers) {
       let deactivatedCount = 0;
+      const deactivatedUsers: Array<{ email: string; hs_owner_id: string | null }> = [];
       for (const user of allUsers) {
-        // Check if user's hs_owner_id is still in active owners (using userId not owner.id!)
+        // Check if user's hs_owner_id (owner.id) is still in active owners
         if (user.hs_owner_id && !hubspotOwnerIds.has(user.hs_owner_id)) {
           const { error: updateError } = await supabase
             .from('users')
@@ -362,11 +363,16 @@ Deno.serve(async (req) => {
             console.error(`Failed to deactivate user ${user.hubspot_user_id}:`, updateError);
           } else {
             deactivatedCount++;
+            deactivatedUsers.push({ email: user.email, hs_owner_id: user.hs_owner_id });
             console.log(`✓ Deactivated user: ${user.hubspot_user_id} (id: ${user.id})`);
           }
         }
       }
       console.log(`Total deactivated users: ${deactivatedCount}`);
+      if (deactivatedUsers.length > 0) {
+        console.log(`First ${Math.min(5, deactivatedUsers.length)} deactivated users:`, 
+          deactivatedUsers.slice(0, 5).map(u => `${u.email} (hs_owner_id: ${u.hs_owner_id})`).join(', '));
+      }
     }
 
     // Fetch deals from HubSpot
