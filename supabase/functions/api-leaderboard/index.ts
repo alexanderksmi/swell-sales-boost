@@ -126,14 +126,19 @@ Deno.serve(async (req) => {
     const syncData = await syncResponse.json();
     const { deals } = syncData;
 
-    // Fetch users from database with optional team filter
-    // TEMPORARY: Removed is_active filter to show all users while debugging sync issue
-    let usersQuery = supabase
+    // Fetch ALL users for owner matching
+    const { data: activeUsers, error: usersError } = await supabase
       .from('users')
       .select('id, hubspot_user_id, hs_owner_id, full_name, email, is_active')
       .eq('tenant_id', tenant_id);
     
-    // If team filter is provided, join with user_teams
+    if (usersError) {
+      console.error('Failed to fetch users:', usersError);
+      throw new Error('Failed to fetch users');
+    }
+    
+    // Fetch team members if team filter is specified
+    let teamUserIds: Set<string> | null = null;
     if (team_id) {
       const { data: teamUsers, error: teamUsersError } = await supabase
         .from('user_teams')
@@ -145,10 +150,10 @@ Deno.serve(async (req) => {
         throw new Error('Failed to fetch team users');
       }
       
-      const userIds = teamUsers?.map(tu => tu.user_id) || [];
-      console.log(`Found ${userIds.length} users in team ${team_id}`);
+      teamUserIds = new Set(teamUsers?.map(tu => tu.user_id) || []);
+      console.log(`Found ${teamUserIds.size} users in team ${team_id}`);
       
-      if (userIds.length === 0) {
+      if (teamUserIds.size === 0) {
         console.log('No users in selected team, returning empty leaderboard');
         return new Response(
           JSON.stringify({
@@ -168,21 +173,13 @@ Deno.serve(async (req) => {
           }
         );
       }
-      
-      usersQuery = usersQuery.in('id', userIds);
     }
     
-    const { data: activeUsers, error: usersError } = await usersQuery;
-    
-    if (usersError) {
-      console.error('Failed to fetch active users:', usersError);
-      throw new Error('Failed to fetch active users');
-    }
     
     const activeCount = activeUsers?.filter(u => u.is_active).length || 0;
-    console.log(`Found ${activeUsers?.length || 0} total users (${activeCount} active)${team_id ? ' in team' : ''}`);
+    console.log(`Found ${activeUsers?.length || 0} total users (${activeCount} active)`);
     
-    // Create a map of HubSpot owner IDs to user info
+    // Create a map of HubSpot owner IDs to user info (ALL users for deal matching)
     const ownerMap = new Map(
       activeUsers?.map(u => [String(u.hs_owner_id), u]) || []
     );
@@ -209,16 +206,6 @@ Deno.serve(async (req) => {
 
     console.log(`Processing ${openDeals.length} open deals`);
     
-    // Filter deals by team if team_id is specified
-    if (team_id) {
-      const teamOwnerIds = new Set(Array.from(ownerMap.keys()));
-      const dealsBeforeFilter = openDeals.length;
-      openDeals = openDeals.filter(d => 
-        teamOwnerIds.has(String(d.properties.hubspot_owner_id))
-      );
-      console.log(`Filtered deals from ${dealsBeforeFilter} to ${openDeals.length} for team ${team_id}`);
-    }
-    
     // Log first few owner_ids from deals
     const dealOwnerIds = openDeals.map(d => d.properties.hubspot_owner_id).filter(Boolean);
     console.log(`Deal owner_ids (first 10):`, dealOwnerIds.slice(0, 10));
@@ -243,7 +230,7 @@ Deno.serve(async (req) => {
       }
     });
 
-    // Build leaderboard entries - only for active users
+    // Build leaderboard entries - filter by team membership if specified
     const entries: LeaderboardEntry[] = [];
     
     ownerDeals.forEach((data, ownerId) => {
@@ -251,7 +238,13 @@ Deno.serve(async (req) => {
       
       if (!user) {
         console.log(`Skipping inactive/unknown owner: ${ownerId}`);
-        return; // Skip inactive or users not in the team
+        return;
+      }
+      
+      // If team filter is active, only include users in the team
+      if (teamUserIds && !teamUserIds.has(user.id)) {
+        console.log(`Skipping user ${user.full_name} (not in selected team)`);
+        return;
       }
       
       entries.push({
