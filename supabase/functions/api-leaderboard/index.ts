@@ -66,19 +66,24 @@ Deno.serve(async (req) => {
 
     const supabase = createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!);
 
-    // Extract tenant from request body or query param
+    // Extract tenant and optional team_id from request
     let tenant_id: string | null = null;
+    let team_id: string | null = null;
     
     if (req.method === 'POST') {
       const body = await req.json().catch(() => ({}));
       tenant_id = body.tenant_id;
+      team_id = body.team_id;
     } else {
       tenant_id = url.searchParams.get('tenant_id');
+      team_id = url.searchParams.get('team_id');
     }
     
     if (!tenant_id) {
       throw new Error('tenant_id required');
     }
+    
+    console.log(`Fetching leaderboard for tenant: ${tenant_id}, team: ${team_id || 'all'}`);
 
     const cacheKey = `${tenant_id}-${path}`;
     const cached = cache.get(cacheKey);
@@ -117,7 +122,67 @@ Deno.serve(async (req) => {
     }
 
     const syncData = await syncResponse.json();
-    const { owners, deals } = syncData;
+    const { deals } = syncData;
+
+    // Fetch active users from database with optional team filter
+    let usersQuery = supabase
+      .from('users')
+      .select('id, hubspot_user_id, hs_owner_id, full_name, email')
+      .eq('tenant_id', tenant_id)
+      .eq('is_active', true);
+    
+    // If team filter is provided, join with user_teams
+    if (team_id) {
+      const { data: teamUsers, error: teamUsersError } = await supabase
+        .from('user_teams')
+        .select('user_id')
+        .eq('team_id', team_id);
+      
+      if (teamUsersError) {
+        console.error('Failed to fetch team users:', teamUsersError);
+        throw new Error('Failed to fetch team users');
+      }
+      
+      const userIds = teamUsers?.map(tu => tu.user_id) || [];
+      console.log(`Found ${userIds.length} users in team ${team_id}`);
+      
+      if (userIds.length === 0) {
+        console.log('No users in selected team, returning empty leaderboard');
+        return new Response(
+          JSON.stringify({
+            category: 'Størst deal i pipeline',
+            top_3: [],
+            full_list: [],
+            total_entries: 0,
+            last_updated: new Date().toISOString(),
+          }),
+          {
+            status: 200,
+            headers: {
+              ...headers,
+              'Content-Type': 'application/json',
+              'X-Cache': 'MISS',
+            },
+          }
+        );
+      }
+      
+      usersQuery = usersQuery.in('id', userIds);
+    }
+    
+    const { data: activeUsers, error: usersError } = await usersQuery;
+    
+    if (usersError) {
+      console.error('Failed to fetch active users:', usersError);
+      throw new Error('Failed to fetch active users');
+    }
+    
+    console.log(`Found ${activeUsers?.length || 0} active users${team_id ? ' in team' : ''}`);
+    
+    // Create a map of HubSpot owner IDs to user info
+    const ownerMap = new Map(
+      activeUsers?.map(u => [u.hs_owner_id || u.hubspot_user_id, u]) || []
+    );
 
     // Fetch closed stages to filter out
     const { data: dealStagesData } = await supabase
@@ -157,16 +222,21 @@ Deno.serve(async (req) => {
       }
     });
 
-    // Build leaderboard entries
+    // Build leaderboard entries - only for active users
     const entries: LeaderboardEntry[] = [];
     
     ownerDeals.forEach((data, ownerId) => {
-      const owner = owners.find((o: any) => o.id === ownerId);
+      const user = ownerMap.get(ownerId);
+      
+      if (!user) {
+        console.log(`Skipping inactive/unknown owner: ${ownerId}`);
+        return; // Skip inactive or users not in the team
+      }
       
       entries.push({
         owner_id: ownerId,
-        owner_name: owner ? `${owner.firstName} ${owner.lastName}` : 'Unknown',
-        owner_email: owner?.email || '',
+        owner_name: user.full_name || 'Unknown',
+        owner_email: user.email || '',
         largest_deal_amount: data.maxDeal.amount,
         largest_deal_name: data.maxDeal.name,
         rank: 0, // Will be set after sorting

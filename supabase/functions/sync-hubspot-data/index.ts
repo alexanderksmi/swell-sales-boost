@@ -139,7 +139,7 @@ Deno.serve(async (req) => {
 
     console.log('Fetching owners from HubSpot...');
     const ownersResponse = await fetchWithRetry(
-      'https://api.hubapi.com/crm/v3/owners?limit=100',
+      'https://api.hubapi.com/crm/v3/owners?limit=100&archived=false',
       {
         headers: {
           'Authorization': `Bearer ${accessToken}`,
@@ -167,6 +167,7 @@ Deno.serve(async (req) => {
         for (const team of owner.teams) {
           if (team.id && team.name && !teamsMap.has(team.id)) {
             teamsMap.set(team.id, { id: team.id, name: team.name });
+            console.log(`Found team: ${team.id} - ${team.name}`);
           }
         }
       }
@@ -219,9 +220,13 @@ Deno.serve(async (req) => {
     const hubspotOwnerIds = new Set<string>();
     
     for (const owner of owners) {
-      if (!owner.id || !owner.email) continue;
+      if (!owner.id || !owner.email) {
+        console.log(`Skipping owner without id or email: ${JSON.stringify(owner)}`);
+        continue;
+      }
       
       hubspotOwnerIds.add(owner.id);
+      console.log(`Processing owner: ${owner.id} - ${owner.email} - Teams: ${owner.teams?.map(t => t.name).join(', ') || 'none'}`);
       
       // Upsert user
       const { data: existingUser } = await supabase
@@ -309,16 +314,23 @@ Deno.serve(async (req) => {
       .eq('is_active', true);
 
     if (allUsers) {
+      let deactivatedCount = 0;
       for (const user of allUsers) {
         if (user.hubspot_user_id && !hubspotOwnerIds.has(user.hubspot_user_id)) {
-          await supabase
+          const { error: updateError } = await supabase
             .from('users')
             .update({ is_active: false, updated_at: new Date().toISOString() })
             .eq('id', user.id);
           
-          console.log(`Marked user ${user.hubspot_user_id} as inactive`);
+          if (updateError) {
+            console.error(`Failed to deactivate user ${user.hubspot_user_id}:`, updateError);
+          } else {
+            deactivatedCount++;
+            console.log(`✓ Deactivated user: ${user.hubspot_user_id} (id: ${user.id})`);
+          }
         }
       }
+      console.log(`Total deactivated users: ${deactivatedCount}`);
     }
 
     // Fetch deals from HubSpot

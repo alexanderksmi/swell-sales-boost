@@ -32,6 +32,11 @@ interface Summary {
   deals_count: number;
 }
 
+interface Team {
+  id: string;
+  name: string;
+}
+
 const Leaderboard = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
@@ -42,6 +47,8 @@ const Leaderboard = () => {
   const [tenantId, setTenantId] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [companyName, setCompanyName] = useState<string>('');
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchUserData = async () => {
@@ -69,11 +76,31 @@ const Leaderboard = () => {
         setTenantId(sessionData.tenant.id);
         setCompanyName(sessionData.tenant.company_name || '');
 
+        // Fetch user's teams
+        const { data: userTeamsData, error: teamsError } = await supabase
+          .from('user_teams')
+          .select('team_id, teams!inner(id, name)')
+          .eq('user_id', sessionData.user.id);
+
+        if (teamsError) {
+          console.error('Teams error:', teamsError);
+        } else {
+          const userTeams = userTeamsData?.map((ut: any) => ({
+            id: ut.teams.id,
+            name: ut.teams.name
+          })) || [];
+          setTeams(userTeams);
+          console.log('[Leaderboard] User teams:', userTeams);
+        }
+
         // Fetch leaderboard data
         const { data: leaderboardResponse, error: leaderboardError } = await supabase.functions.invoke(
           'api-leaderboard',
           {
-            body: { tenant_id: sessionData.tenant.id },
+            body: { 
+              tenant_id: sessionData.tenant.id,
+              team_id: selectedTeamId 
+            },
           }
         );
 
@@ -110,7 +137,11 @@ const Leaderboard = () => {
     };
 
     fetchUserData();
-  }, [navigate]);
+  }, [navigate, selectedTeamId]);
+
+  const handleTeamChange = (teamId: string) => {
+    setSelectedTeamId(teamId === 'all' ? null : teamId);
+  };
 
   const handleLogout = async () => {
     try {
@@ -162,6 +193,22 @@ const Leaderboard = () => {
           </div>
           
           <div className="flex items-center gap-4">
+            {teams.length > 0 && (
+              <Select value={selectedTeamId || 'all'} onValueChange={handleTeamChange}>
+                <SelectTrigger className="w-[200px]">
+                  <SelectValue placeholder="Velg team" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Alle teams</SelectItem>
+                  {teams.map(team => (
+                    <SelectItem key={team.id} value={team.id}>
+                      {team.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            
             <span className="text-sm text-muted-foreground">
               Innlogget
             </span>
