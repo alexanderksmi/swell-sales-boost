@@ -267,12 +267,13 @@ Deno.serve(async (req) => {
       let userId: string;
       
       if (existingUser) {
-        // Update existing user - hs_owner_id should be owner.id (what deals reference)
+        // Update existing user - hs_owner_id should match what deals use in hubspot_owner_id
+        // Deals reference userId (not owner.id!) in their hubspot_owner_id property
         const { error: updateError } = await supabase
           .from('users')
           .update({
-            hubspot_user_id: userIdString, // Keep userId for reference
-            hs_owner_id: owner.id, // This is what deals reference in hubspot_owner_id
+            hubspot_user_id: userIdString, // Store userId/userIdIncludingInactive
+            hs_owner_id: userIdString, // Match deals' hubspot_owner_id (uses userId!)
             full_name: fullName,
             is_active: true,
             updated_at: new Date().toISOString(),
@@ -287,13 +288,13 @@ Deno.serve(async (req) => {
         console.log(`✓ Updated user ${owner.id} - ${fullName}`);
         userId = existingUser.id;
       } else {
-        // Insert new user - hs_owner_id should be owner.id (what deals reference)
+        // Insert new user - hs_owner_id should match deals' hubspot_owner_id (userId!)
         const { data: newUser, error: insertError } = await supabase
           .from('users')
           .insert({
             tenant_id,
             hubspot_user_id: userIdString,
-            hs_owner_id: owner.id, // This is what deals reference in hubspot_owner_id
+            hs_owner_id: userIdString, // Match deals' hubspot_owner_id (uses userId!)
             email: owner.email,
             full_name: fullName,
             is_active: true,
@@ -347,14 +348,15 @@ Deno.serve(async (req) => {
     // Mark users as inactive if they're not in HubSpot anymore
     const { data: allUsers } = await supabase
       .from('users')
-      .select('id, hubspot_user_id')
+      .select('id, hubspot_user_id, hs_owner_id')
       .eq('tenant_id', tenant_id)
       .eq('is_active', true);
 
     if (allUsers) {
       let deactivatedCount = 0;
       for (const user of allUsers) {
-        if (user.hubspot_user_id && !hubspotOwnerIds.has(user.hubspot_user_id)) {
+        // Check if user's hs_owner_id is still in active owners (using userId not owner.id!)
+        if (user.hs_owner_id && !hubspotOwnerIds.has(user.hs_owner_id)) {
           const { error: updateError } = await supabase
             .from('users')
             .update({ is_active: false, updated_at: new Date().toISOString() })
