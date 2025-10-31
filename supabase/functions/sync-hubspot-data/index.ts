@@ -157,6 +157,11 @@ Deno.serve(async (req) => {
     const owners: HubSpotOwner[] = ownersData.results || [];
     
     console.log(`Fetched ${owners.length} owners`);
+    
+    // Log first owner structure to debug ID mismatch
+    if (owners.length > 0) {
+      console.log(`Sample owner data:`, JSON.stringify(owners[0], null, 2));
+    }
 
     // Sync teams from HubSpot owners
     console.log('Syncing teams...');
