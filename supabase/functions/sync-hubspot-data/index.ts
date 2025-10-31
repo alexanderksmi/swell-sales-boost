@@ -158,14 +158,11 @@ Deno.serve(async (req) => {
     
     console.log(`Fetched ${owners.length} owners`);
     
-    // Log specific owners for debugging
-    const debugOwnerIds = ['17833768', '18121853', '17477231'];
-    const debugOwners = owners.filter(o => debugOwnerIds.includes(o.id));
-    console.log(`Debug owners (${debugOwners.length}):`, debugOwners.map(o => ({
-      id: o.id,
-      email: o.email,
-      name: `${o.firstName} ${o.lastName}`
-    })));
+    // Log first 3 full owner objects to see all available ID fields
+    console.log('Sample owner objects (first 3):');
+    owners.slice(0, 3).forEach(o => {
+      console.log(JSON.stringify(o, null, 2));
+    });
 
     // Sync teams from HubSpot owners
     console.log('Syncing teams...');
