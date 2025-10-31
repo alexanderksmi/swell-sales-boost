@@ -21,15 +21,6 @@ interface HubSpotOwner {
   }>;
 }
 
-interface HubSpotContact {
-  id: string;
-  properties: {
-    email: string;
-    firstname: string;
-    lastname: string;
-  };
-}
-
 interface HubSpotDeal {
   id: string;
   properties: {
@@ -41,11 +32,6 @@ interface HubSpotDeal {
     hs_lastmodifieddate: string;
     hubspot_owner_id: string;
     hs_is_closed: string;
-  };
-  associations?: {
-    contacts?: {
-      results: Array<{ id: string }>;
-    };
   };
 }
 
@@ -427,91 +413,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    // =============== STEP 1: SYNC CONTACTS ===============
-    console.log('\n=== Syncing Contacts ===');
-    
-    const fetchAllContacts = async (): Promise<HubSpotContact[]> => {
-      let allContacts: HubSpotContact[] = [];
-      let after: string | undefined;
-      
-      do {
-        const url = new URL('https://api.hubapi.com/crm/v3/objects/contacts');
-        url.searchParams.append('limit', '100');
-        url.searchParams.append('properties', 'email,firstname,lastname');
-        if (after) url.searchParams.append('after', after);
-        
-        const response = await fetchWithRetry(url.toString(), {
-          headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
-        });
-        
-        if (!response.ok) {
-          const error = await response.text();
-          throw new Error(`Failed to fetch contacts: ${error}`);
-        }
-        
-        const data = await response.json();
-        allContacts = allContacts.concat(data.results || []);
-        after = data.paging?.next?.after;
-        
-        console.log(`Fetched ${data.results?.length || 0} contacts (total: ${allContacts.length})`);
-      } while (after);
-      
-      return allContacts;
-    };
-    
-    const allContacts = await fetchAllContacts();
-    console.log(`Total contacts fetched: ${allContacts.length}`);
-    
-    // Upsert contacts to database
-    const contactIdMapping = new Map<string, string>(); // HubSpot contact ID -> DB contact UUID
-    
-    for (const contact of allContacts) {
-      if (!contact.id) continue;
-      
-      const { data: existingContact } = await supabase
-        .from('contacts')
-        .select('id')
-        .eq('tenant_id', tenant_id)
-        .eq('hubspot_contact_id', contact.id)
-        .maybeSingle();
-      
-      if (existingContact) {
-        await supabase
-          .from('contacts')
-          .update({
-            email: contact.properties.email,
-            firstname: contact.properties.firstname,
-            lastname: contact.properties.lastname,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', existingContact.id);
-        
-        contactIdMapping.set(contact.id, existingContact.id);
-      } else {
-        const { data: newContact } = await supabase
-          .from('contacts')
-          .insert({
-            tenant_id,
-            hubspot_contact_id: contact.id,
-            email: contact.properties.email,
-            firstname: contact.properties.firstname,
-            lastname: contact.properties.lastname,
-          })
-          .select('id')
-          .single();
-        
-        if (newContact) {
-          contactIdMapping.set(contact.id, newContact.id);
-        }
-      }
-    }
-    
-    console.log(`Synced ${contactIdMapping.size} contacts`);
-
-    // =============== STEP 2: SYNC DEALS ===============
+    // =============== SYNC DEALS ===============
     console.log('\n=== Syncing Deals ===');
     
     const fetchAllDeals = async (): Promise<HubSpotDeal[]> => {
@@ -540,7 +442,6 @@ Deno.serve(async (req) => {
                 'hubspot_owner_id',
                 'hs_is_closed'
               ],
-              associations: ['contacts'],
             }),
           }
         );
@@ -585,10 +486,6 @@ Deno.serve(async (req) => {
         ? ownerIdMapping.get(deal.properties.hubspot_owner_id) || null
         : null;
       
-      // Find contact_id
-      const hubspotContactId = deal.associations?.contacts?.results?.[0]?.id;
-      const contactId = hubspotContactId ? contactIdMapping.get(hubspotContactId) || null : null;
-      
       // Check if deal exists
       const { data: existingDeal } = await supabase
         .from('deals')
@@ -620,7 +517,6 @@ Deno.serve(async (req) => {
         await supabase
           .from('deals')
           .update({
-            contact_id: contactId,
             owner_id: ownerId,
             hubspot_owner_id: deal.properties.hubspot_owner_id,
             dealname: deal.properties.dealname,
@@ -640,7 +536,6 @@ Deno.serve(async (req) => {
           .insert({
             tenant_id,
             hubspot_deal_id: deal.id,
-            contact_id: contactId,
             owner_id: ownerId,
             hubspot_owner_id: deal.properties.hubspot_owner_id,
             dealname: deal.properties.dealname,

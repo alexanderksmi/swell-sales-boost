@@ -105,35 +105,6 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Check if we have any deals in database - if not, trigger sync first
-    const { count: dealsCount } = await supabase
-      .from('deals')
-      .select('*', { count: 'exact', head: true })
-      .eq('tenant_id', tenant_id);
-    
-    if (dealsCount === 0) {
-      console.log('No deals in database, triggering HubSpot sync...');
-      
-      const syncResponse = await fetch(
-        `${SUPABASE_URL}/functions/v1/sync-hubspot-data`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ tenant_id }),
-        }
-      );
-
-      if (!syncResponse.ok) {
-        console.error('Failed to sync HubSpot data');
-        // Continue anyway - maybe there really is no data
-      } else {
-        console.log('HubSpot sync completed successfully');
-      }
-    }
-    
     // Fetch open deals directly from database
     console.log('Fetching open deals from database...');
     const { data: openDealsData, error: dealsError } = await supabase
@@ -211,27 +182,58 @@ Deno.serve(async (req) => {
     
     console.log(`Processing ${filteredDeals?.length || 0} deals (after team filter)`);
     
-    // Group by owner and find largest deal per owner
+    // Fetch all active users (filtered by team if specified)
+    let usersQuery = supabase
+      .from('users')
+      .select('id, full_name, email, is_active')
+      .eq('tenant_id', tenant_id)
+      .eq('is_active', true);
+    
+    // If team filter is specified, only get users in that team
+    if (teamUserIds && teamUserIds.size > 0) {
+      usersQuery = usersQuery.in('id', Array.from(teamUserIds));
+    }
+    
+    const { data: activeUsers, error: usersError } = await usersQuery;
+    
+    if (usersError) {
+      console.error('Failed to fetch users:', usersError);
+      throw new Error('Failed to fetch users');
+    }
+    
+    console.log(`Found ${activeUsers?.length || 0} active users`);
+    
+    // Group deals by owner and find largest deal per owner
     const ownerDeals = new Map<string, { maxDeal: any; user: any }>();
 
+    // First, add all active users to the map (even without deals)
+    activeUsers?.forEach((user) => {
+      ownerDeals.set(user.id, {
+        maxDeal: null,
+        user,
+      });
+    });
+
+    // Then update with actual deal data for those who have deals
     filteredDeals?.forEach((deal) => {
       if (!deal.owner_id || !deal.users) return;
       
-      // users is returned as a single object (not array) since it's a foreign key relationship
       const user = Array.isArray(deal.users) ? deal.users[0] : deal.users;
-      if (!user || !user.is_active) return; // Skip inactive users
+      if (!user || !user.is_active) return;
       
       const existing = ownerDeals.get(deal.owner_id);
+      if (!existing) return; // Skip if user not in our active users list
+      
       const dealAmount = parseFloat(String(deal.amount || 0));
       
-      if (!existing || dealAmount > parseFloat(String(existing.maxDeal.amount || 0))) {
+      if (!existing.maxDeal || dealAmount > parseFloat(String(existing.maxDeal.amount || 0))) {
         ownerDeals.set(deal.owner_id, {
           maxDeal: {
             id: deal.hubspot_deal_id,
             name: deal.dealname,
             amount: dealAmount,
           },
-          user,
+          user: existing.user,
         });
       }
     });
@@ -244,8 +246,8 @@ Deno.serve(async (req) => {
         owner_id: ownerId,
         owner_name: data.user.full_name || 'Unknown',
         owner_email: data.user.email || '',
-        largest_deal_amount: data.maxDeal.amount,
-        largest_deal_name: data.maxDeal.name,
+        largest_deal_amount: data.maxDeal?.amount || 0,
+        largest_deal_name: data.maxDeal?.name || 'Ingen åpne deals',
         rank: 0, // Will be set after sorting
       });
     });
