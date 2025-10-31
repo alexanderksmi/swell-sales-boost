@@ -219,6 +219,25 @@ Deno.serve(async (req) => {
     console.log('Syncing users...');
     const hubspotOwnerIds = new Set<string>();
     
+    // One-time fix: Update hs_owner_id for existing users where it's null
+    // This ensures all users synced before this fix get their hs_owner_id populated
+    const { data: usersToFix } = await supabase
+      .from('users')
+      .select('id, hubspot_user_id')
+      .eq('tenant_id', tenant_id)
+      .is('hs_owner_id', null)
+      .not('hubspot_user_id', 'is', null);
+    
+    if (usersToFix && usersToFix.length > 0) {
+      for (const user of usersToFix) {
+        await supabase
+          .from('users')
+          .update({ hs_owner_id: user.hubspot_user_id })
+          .eq('id', user.id);
+      }
+      console.log(`✓ Fixed hs_owner_id for ${usersToFix.length} existing users`);
+    }
+    
     for (const owner of owners) {
       if (!owner.id || !owner.email) {
         console.log(`Skipping owner without id or email: ${JSON.stringify(owner)}`);
@@ -247,6 +266,7 @@ Deno.serve(async (req) => {
           .update({
             email: owner.email,
             full_name: fullName,
+            hs_owner_id: owner.id, // Ensure hs_owner_id is always up to date
             is_active: true,
             updated_at: new Date().toISOString(),
           })
