@@ -184,6 +184,9 @@ Deno.serve(async (req) => {
     const ownerMap = new Map(
       activeUsers?.map(u => [u.hs_owner_id || u.hubspot_user_id, u]) || []
     );
+    
+    console.log(`OwnerMap keys (first 10):`, Array.from(ownerMap.keys()).slice(0, 10));
+    console.log(`OwnerMap size: ${ownerMap.size}`);
 
     // Fetch closed stages to filter out
     const { data: dealStagesData } = await supabase
@@ -203,6 +206,11 @@ Deno.serve(async (req) => {
     );
 
     console.log(`Processing ${openDeals.length} open deals`);
+    
+    // Log first few owner_ids from deals
+    const dealOwnerIds = openDeals.map(d => d.owner_id).filter(Boolean);
+    console.log(`Deal owner_ids (first 10):`, dealOwnerIds.slice(0, 10));
+    console.log(`Deal owner_ids types:`, dealOwnerIds.slice(0, 3).map(id => `${id} (${typeof id})`));
 
     // Group by owner and find largest deal per owner
     const ownerDeals = new Map<string, { maxDeal: Deal; totalPipeline: number }>();
