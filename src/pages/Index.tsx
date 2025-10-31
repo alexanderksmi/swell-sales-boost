@@ -65,23 +65,13 @@ const Index = () => {
       console.log('[Frontend] Found session_key in URL, exchanging for token');
       setIsLoggingIn(true);
       
-      // Exchange session key for actual token
-      const exchangeUrl = new URL(`${EDGE_ORIGIN}/functions/v1/api-exchange-session`);
-      exchangeUrl.searchParams.set('session_key', sessionKey);
-      
-      const token = localStorage.getItem('swell_session');
-      const headers: HeadersInit = {
-        'Content-Type': 'application/json',
-      };
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-      
-      fetch(exchangeUrl.toString(), { headers })
-        .then(response => response.json())
-        .then(async (data) => {
-          if (data.error) {
-            console.error('[Frontend] Failed to exchange session:', data.error);
+      // Exchange session key for actual token using Supabase functions
+      supabase.functions.invoke('api-exchange-session', {
+        body: { session_key: sessionKey },
+      })
+        .then(async ({ data, error }) => {
+          if (error || !data?.session_token) {
+            console.error('[Frontend] Failed to exchange session:', error);
             toast({
               title: "Innlogging feilet",
               description: "Kunne ikke fullføre autentisering. Prøv igjen.",
@@ -92,29 +82,41 @@ const Index = () => {
             return;
           }
 
-          if (data.sessionToken) {
-            console.log('[Frontend] Session token received, setting Supabase session');
-            
-            // Set the session in Supabase client
-            await supabase.auth.setSession({
-              access_token: data.sessionToken,
-              refresh_token: data.sessionToken, // Use same token for now
-            });
-            
-            // Also store in localStorage as backup
-            localStorage.setItem('swell_session', data.sessionToken);
-            
-            // Clean up URL
-            window.history.replaceState({}, document.title, window.location.pathname);
-            
+          console.log('[Frontend] Session token received, length:', data.session_token.length);
+          
+          // Set the session with Supabase auth - this makes the token available to all Supabase calls
+          const { error: authError } = await supabase.auth.setSession({
+            access_token: data.session_token,
+            refresh_token: data.session_token, // Using same token for both
+          });
+
+          if (authError) {
+            console.error('[Frontend] Failed to set Supabase session:', authError);
             toast({
-              title: "Innlogging vellykket",
-              description: "Velkommen til Swell!",
+              title: "Innlogging feilet",
+              description: "Kunne ikke etablere sesjon. Prøv igjen.",
+              variant: "destructive"
             });
-            
-            // Navigate to leaderboard
-            navigate('/app/leaderboard');
+            setIsLoggingIn(false);
+            window.history.replaceState({}, document.title, window.location.pathname);
+            return;
           }
+
+          console.log('[Frontend] Supabase session established successfully');
+          
+          // Also store in localStorage as backup
+          localStorage.setItem('swell_session', data.session_token);
+          
+          // Clean up URL
+          window.history.replaceState({}, document.title, window.location.pathname);
+          
+          toast({
+            title: "Innlogging vellykket",
+            description: "Velkommen til Swell!",
+          });
+          
+          // Navigate to leaderboard
+          navigate('/app/leaderboard');
         })
         .catch(error => {
           console.error('[Frontend] Exchange request failed:', error);

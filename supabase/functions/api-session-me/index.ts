@@ -35,15 +35,60 @@ Deno.serve(async (req) => {
       );
     }
     
-    // Decode JWT (simple validation - in production use proper JWT library)
+    // Decode JWT
     try {
-      const [headerB64, payloadB64] = sessionToken.split('.');
-      const payload = JSON.parse(atob(payloadB64));
+      const parts = sessionToken.split('.');
+      if (parts.length !== 3) {
+        console.log('Invalid JWT format: expected 3 parts, got', parts.length);
+        return new Response(
+          JSON.stringify({ authenticated: false, error: 'Invalid token format' }),
+          {
+            status: 200,
+            headers: {
+              ...corsHeaders,
+              'Content-Type': 'application/json',
+            },
+          }
+        );
+      }
+
+      const [headerB64, payloadB64] = parts;
+      
+      // Base64url decode helper
+      const base64urlDecode = (str: string) => {
+        str = str.replace(/-/g, '+').replace(/_/g, '/');
+        const pad = str.length % 4;
+        if (pad) {
+          str += '='.repeat(4 - pad);
+        }
+        return atob(str);
+      };
+
+      const payload = JSON.parse(base64urlDecode(payloadB64));
+      console.log('Decoded JWT payload:', JSON.stringify(payload, null, 2));
+      
+      // Extract user_id and tenant_id from JWT claims
+      const userId = payload.sub; // Supabase uses 'sub' for user ID
+      const tenantId = payload.tenant_id;
+
+      if (!userId || !tenantId) {
+        console.log('Missing required claims - userId:', userId, 'tenantId:', tenantId);
+        return new Response(
+          JSON.stringify({ authenticated: false, error: 'Invalid token claims' }),
+          {
+            status: 200,
+            headers: {
+              ...corsHeaders,
+              'Content-Type': 'application/json',
+            },
+          }
+        );
+      }
       
       // Check if token is expired
       const now = Math.floor(Date.now() / 1000);
       if (payload.exp && payload.exp < now) {
-        console.log('Session token expired');
+        console.log('Session token expired at', payload.exp, 'current time:', now);
         return new Response(
           JSON.stringify({ authenticated: false, error: 'Token expired' }),
           {
@@ -56,7 +101,7 @@ Deno.serve(async (req) => {
         );
       }
 
-      // Verify user exists in database
+      // Verify user exists in database using service role
       const supabase = createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!, {
         auth: {
           autoRefreshToken: false,
@@ -64,11 +109,12 @@ Deno.serve(async (req) => {
         },
       });
 
+      console.log('Querying user with id:', userId, 'tenant:', tenantId);
       const { data: user, error } = await supabase
         .from('users')
         .select('id, email, tenant_id')
-        .eq('id', payload.user_id)
-        .eq('tenant_id', payload.tenant_id)
+        .eq('id', userId)
+        .eq('tenant_id', tenantId)
         .single();
 
       if (error || !user) {

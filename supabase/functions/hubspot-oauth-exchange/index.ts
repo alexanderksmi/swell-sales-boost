@@ -331,26 +331,36 @@ Deno.serve(async (req) => {
       aud: 'authenticated',
       exp: now + (60 * 60 * 24 * 7), // 7 days
       iat: now,
+      iss: 'supabase',
       sub: user.id, // User ID as subject
       tenant_id: tenant.id, // Custom claim for tenant
       email: userEmail,
       role: 'authenticated',
     };
 
+    console.log('Generating JWT for user:', user.id, 'tenant:', tenant.id);
+
     // Get JWT secret from environment
     const jwtSecret = Deno.env.get('SUPABASE_JWT_SECRET') || supabaseKey;
 
+    // Base64url encode helper for proper JWT encoding
+    const base64urlEncode = (input: string | Uint8Array): string => {
+      let base64: string;
+      if (typeof input === 'string') {
+        base64 = btoa(input);
+      } else {
+        base64 = btoa(String.fromCharCode(...input));
+      }
+      return base64
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=/g, '');
+    };
+
     // Create JWT header and payload
     const headerObj = { alg: 'HS256', typ: 'JWT' };
-    const header = btoa(JSON.stringify(headerObj))
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=/g, '');
-    
-    const payload = btoa(JSON.stringify(jwtPayload))
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=/g, '');
+    const header = base64urlEncode(JSON.stringify(headerObj));
+    const payload = base64urlEncode(JSON.stringify(jwtPayload));
 
     // Sign the JWT
     const encoder = new TextEncoder();
@@ -364,14 +374,11 @@ Deno.serve(async (req) => {
       ['sign']
     );
     const signatureBuffer = await crypto.subtle.sign('HMAC', cryptoKey, data);
-    const signature = btoa(String.fromCharCode(...new Uint8Array(signatureBuffer)))
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=/g, '');
+    const signature = base64urlEncode(new Uint8Array(signatureBuffer));
 
     const sessionToken = `${header}.${payload}.${signature}`;
     
-    console.log('Created Supabase-compatible JWT with tenant_id in claims');
+    console.log('JWT generated successfully, length:', sessionToken.length, 'claims:', JSON.stringify(jwtPayload, null, 2));
 
     // Generate unique session key
     const sessionKey = crypto.randomUUID();
