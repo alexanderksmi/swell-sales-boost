@@ -13,6 +13,10 @@ interface HubSpotOwner {
   email: string;
   firstName: string;
   lastName: string;
+  teams?: Array<{
+    id: string;
+    name: string;
+  }>;
 }
 
 interface HubSpotDeal {
@@ -153,6 +157,169 @@ Deno.serve(async (req) => {
     const owners: HubSpotOwner[] = ownersData.results || [];
     
     console.log(`Fetched ${owners.length} owners`);
+
+    // Sync teams from HubSpot owners
+    console.log('Syncing teams...');
+    const teamsMap = new Map<string, { id: string; name: string }>();
+    
+    for (const owner of owners) {
+      if (owner.teams && owner.teams.length > 0) {
+        for (const team of owner.teams) {
+          if (team.id && team.name && !teamsMap.has(team.id)) {
+            teamsMap.set(team.id, { id: team.id, name: team.name });
+          }
+        }
+      }
+    }
+
+    // Upsert teams to database
+    const teamIdMapping = new Map<string, string>(); // HubSpot team ID -> DB team UUID
+    
+    for (const [hubspotTeamId, teamData] of teamsMap) {
+      const { data: existingTeam } = await supabase
+        .from('teams')
+        .select('id')
+        .eq('tenant_id', tenant_id)
+        .eq('hubspot_team_id', hubspotTeamId)
+        .maybeSingle();
+
+      if (existingTeam) {
+        // Update existing team
+        await supabase
+          .from('teams')
+          .update({
+            name: teamData.name,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', existingTeam.id);
+        
+        teamIdMapping.set(hubspotTeamId, existingTeam.id);
+      } else {
+        // Insert new team
+        const { data: newTeam } = await supabase
+          .from('teams')
+          .insert({
+            tenant_id,
+            hubspot_team_id: hubspotTeamId,
+            name: teamData.name,
+          })
+          .select('id')
+          .single();
+
+        if (newTeam) {
+          teamIdMapping.set(hubspotTeamId, newTeam.id);
+        }
+      }
+    }
+
+    console.log(`Synced ${teamIdMapping.size} teams`);
+
+    // Sync users from HubSpot owners
+    console.log('Syncing users...');
+    const hubspotOwnerIds = new Set<string>();
+    
+    for (const owner of owners) {
+      if (!owner.id || !owner.email) continue;
+      
+      hubspotOwnerIds.add(owner.id);
+      
+      // Upsert user
+      const { data: existingUser } = await supabase
+        .from('users')
+        .select('id')
+        .eq('tenant_id', tenant_id)
+        .eq('hubspot_user_id', owner.id)
+        .maybeSingle();
+
+      const fullName = `${owner.firstName || ''} ${owner.lastName || ''}`.trim() || owner.email;
+      
+      let userId: string;
+      
+      if (existingUser) {
+        // Update existing user
+        await supabase
+          .from('users')
+          .update({
+            email: owner.email,
+            full_name: fullName,
+            is_active: true,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', existingUser.id);
+        
+        userId = existingUser.id;
+      } else {
+        // Insert new user
+        const { data: newUser } = await supabase
+          .from('users')
+          .insert({
+            tenant_id,
+            hubspot_user_id: owner.id,
+            hs_owner_id: owner.id,
+            email: owner.email,
+            full_name: fullName,
+            is_active: true,
+          })
+          .select('id')
+          .single();
+
+        if (!newUser) continue;
+        userId = newUser.id;
+        
+        // Assign sales_rep role to new users
+        await supabase
+          .from('user_roles')
+          .insert({
+            tenant_id,
+            user_id: userId,
+            role: 'sales_rep',
+          });
+      }
+
+      // Sync user-team relationships
+      if (owner.teams && owner.teams.length > 0) {
+        // Remove existing user-team relationships
+        await supabase
+          .from('user_teams')
+          .delete()
+          .eq('user_id', userId);
+
+        // Add current team relationships
+        for (const team of owner.teams) {
+          if (team.id && teamIdMapping.has(team.id)) {
+            const teamDbId = teamIdMapping.get(team.id);
+            await supabase
+              .from('user_teams')
+              .insert({
+                user_id: userId,
+                team_id: teamDbId,
+              });
+          }
+        }
+      }
+    }
+
+    console.log(`Synced ${hubspotOwnerIds.size} users`);
+
+    // Mark users as inactive if they're not in HubSpot anymore
+    const { data: allUsers } = await supabase
+      .from('users')
+      .select('id, hubspot_user_id')
+      .eq('tenant_id', tenant_id)
+      .eq('is_active', true);
+
+    if (allUsers) {
+      for (const user of allUsers) {
+        if (user.hubspot_user_id && !hubspotOwnerIds.has(user.hubspot_user_id)) {
+          await supabase
+            .from('users')
+            .update({ is_active: false, updated_at: new Date().toISOString() })
+            .eq('id', user.id);
+          
+          console.log(`Marked user ${user.hubspot_user_id} as inactive`);
+        }
+      }
+    }
 
     // Fetch deals from HubSpot
     console.log('Fetching deals from HubSpot...');

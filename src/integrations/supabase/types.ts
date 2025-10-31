@@ -302,6 +302,7 @@ export type Database = {
         Row: {
           created_at: string
           description: string | null
+          hubspot_team_id: string | null
           id: string
           name: string
           tenant_id: string
@@ -310,6 +311,7 @@ export type Database = {
         Insert: {
           created_at?: string
           description?: string | null
+          hubspot_team_id?: string | null
           id?: string
           name: string
           tenant_id: string
@@ -318,6 +320,7 @@ export type Database = {
         Update: {
           created_at?: string
           description?: string | null
+          hubspot_team_id?: string | null
           id?: string
           name?: string
           tenant_id?: string
@@ -444,6 +447,42 @@ export type Database = {
           },
         ]
       }
+      user_teams: {
+        Row: {
+          created_at: string | null
+          id: string
+          team_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          team_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          team_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_teams_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_teams_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       users: {
         Row: {
           created_at: string
@@ -452,6 +491,7 @@ export type Database = {
           hs_owner_id: string | null
           hubspot_user_id: string | null
           id: string
+          is_active: boolean | null
           tenant_id: string
           updated_at: string
         }
@@ -462,6 +502,7 @@ export type Database = {
           hs_owner_id?: string | null
           hubspot_user_id?: string | null
           id?: string
+          is_active?: boolean | null
           tenant_id: string
           updated_at?: string
         }
@@ -472,6 +513,7 @@ export type Database = {
           hs_owner_id?: string | null
           hubspot_user_id?: string | null
           id?: string
+          is_active?: boolean | null
           tenant_id?: string
           updated_at?: string
         }
