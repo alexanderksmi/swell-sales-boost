@@ -139,9 +139,10 @@ Deno.serve(async (req) => {
       throw new Error('Max retries exceeded');
     };
 
-    console.log('Fetching owners from HubSpot...');
+    console.log('Fetching ALL owners from HubSpot (including archived)...');
+    // Fetch archived owners too since they might still have active deals
     const ownersResponse = await fetchWithRetry(
-      'https://api.hubapi.com/crm/v3/owners?limit=100&archived=false',
+      'https://api.hubapi.com/crm/v3/owners?limit=100',
       {
         headers: {
           'Authorization': `Bearer ${accessToken}`,
