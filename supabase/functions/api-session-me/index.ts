@@ -92,7 +92,26 @@ Deno.serve(async (req) => {
         .eq('id', user.tenant_id)
         .single();
 
-      console.log('Valid session found for user:', user.email);
+      // Fetch user's teams
+      const { data: userTeams, error: teamsError } = await supabase
+        .from('user_teams')
+        .select(`
+          team_id,
+          teams:team_id (
+            id,
+            name,
+            description
+          )
+        `)
+        .eq('user_id', user.id);
+
+      const teams = userTeams?.map(ut => ({
+        id: (ut.teams as any).id,
+        name: (ut.teams as any).name,
+        description: (ut.teams as any).description,
+      })) || [];
+
+      console.log('Valid session found for user:', user.email, 'with', teams.length, 'teams');
       return new Response(
         JSON.stringify({
           authenticated: true,
@@ -104,6 +123,7 @@ Deno.serve(async (req) => {
             id: user.tenant_id,
             company_name: tenant?.company_name || 'Unknown Company',
           },
+          teams,
         }),
         {
           status: 200,

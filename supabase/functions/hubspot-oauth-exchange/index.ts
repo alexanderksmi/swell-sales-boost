@@ -325,18 +325,34 @@ Deno.serve(async (req) => {
 
     console.log('HubSpot tokens stored for tenant:', tenant.id);
 
-    // Create session JWT
-    const sessionPayload = {
-      tenant_id: tenant.id,
-      user_id: user.id,
+    // Create Supabase-compatible JWT with proper claims
+    const now = Math.floor(Date.now() / 1000);
+    const jwtPayload = {
+      aud: 'authenticated',
+      exp: now + (60 * 60 * 24 * 7), // 7 days
+      iat: now,
+      sub: user.id, // User ID as subject
+      tenant_id: tenant.id, // Custom claim for tenant
       email: userEmail,
-      exp: Math.floor(Date.now() / 1000) + (60 * 60 * 24 * 7), // 7 days
+      role: 'authenticated',
     };
 
-    const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
-    const payload = btoa(JSON.stringify(sessionPayload));
-    const jwtSecret = supabaseKey;
+    // Get JWT secret from environment
+    const jwtSecret = Deno.env.get('SUPABASE_JWT_SECRET') || supabaseKey;
 
+    // Create JWT header and payload
+    const headerObj = { alg: 'HS256', typ: 'JWT' };
+    const header = btoa(JSON.stringify(headerObj))
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=/g, '');
+    
+    const payload = btoa(JSON.stringify(jwtPayload))
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=/g, '');
+
+    // Sign the JWT
     const encoder = new TextEncoder();
     const data = encoder.encode(`${header}.${payload}`);
     const keyData = encoder.encode(jwtSecret);
@@ -354,6 +370,8 @@ Deno.serve(async (req) => {
       .replace(/=/g, '');
 
     const sessionToken = `${header}.${payload}.${signature}`;
+    
+    console.log('Created Supabase-compatible JWT with tenant_id in claims');
 
     // Generate unique session key
     const sessionKey = crypto.randomUUID();

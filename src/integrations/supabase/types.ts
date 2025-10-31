@@ -532,6 +532,8 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_tenant_id_from_jwt: { Args: never; Returns: string }
+      get_user_id_from_jwt: { Args: never; Returns: string }
       get_user_tenant_id: { Args: never; Returns: string }
       has_role: {
         Args: {

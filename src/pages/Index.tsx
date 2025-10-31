@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "@/hooks/use-toast";
 import { checkSession } from "@/lib/api";
+import { supabase } from "@/integrations/supabase/client";
 
 const EDGE_ORIGIN = 'https://ffbdcvvxiklzgfwrhbta.supabase.co';
 
@@ -78,7 +79,7 @@ const Index = () => {
       
       fetch(exchangeUrl.toString(), { headers })
         .then(response => response.json())
-        .then(data => {
+        .then(async (data) => {
           if (data.error) {
             console.error('[Frontend] Failed to exchange session:', data.error);
             toast({
@@ -92,7 +93,15 @@ const Index = () => {
           }
 
           if (data.sessionToken) {
-            console.log('[Frontend] Session token received, storing in localStorage');
+            console.log('[Frontend] Session token received, setting Supabase session');
+            
+            // Set the session in Supabase client
+            await supabase.auth.setSession({
+              access_token: data.sessionToken,
+              refresh_token: data.sessionToken, // Use same token for now
+            });
+            
+            // Also store in localStorage as backup
             localStorage.setItem('swell_session', data.sessionToken);
             
             // Clean up URL

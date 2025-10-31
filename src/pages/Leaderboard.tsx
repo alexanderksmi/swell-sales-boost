@@ -76,21 +76,14 @@ const Leaderboard = () => {
         setTenantId(sessionData.tenant.id);
         setCompanyName(sessionData.tenant.company_name || '');
 
-        // Fetch user's teams
-        const { data: userTeamsData, error: teamsError } = await supabase
-          .from('user_teams')
-          .select('team_id, teams!inner(id, name)')
-          .eq('user_id', sessionData.user.id);
+        // Get teams from session data (fetched with service role in api-session-me)
+        const userTeams = sessionData.teams || [];
+        setTeams(userTeams);
+        console.log('[Leaderboard] User teams from session:', userTeams);
 
-        if (teamsError) {
-          console.error('Teams error:', teamsError);
-        } else {
-          const userTeams = userTeamsData?.map((ut: any) => ({
-            id: ut.teams.id,
-            name: ut.teams.name
-          })) || [];
-          setTeams(userTeams);
-          console.log('[Leaderboard] User teams:', userTeams);
+        // Set default team if not already set
+        if (userTeams.length > 0 && !selectedTeamId) {
+          setSelectedTeamId(userTeams[0].id);
         }
 
         // Fetch leaderboard data
