@@ -124,12 +124,12 @@ Deno.serve(async (req) => {
     const syncData = await syncResponse.json();
     const { deals } = syncData;
 
-    // Fetch active users from database with optional team filter
+    // Fetch users from database with optional team filter
+    // TEMPORARY: Removed is_active filter to show all users while debugging sync issue
     let usersQuery = supabase
       .from('users')
-      .select('id, hubspot_user_id, hs_owner_id, full_name, email')
-      .eq('tenant_id', tenant_id)
-      .eq('is_active', true);
+      .select('id, hubspot_user_id, hs_owner_id, full_name, email, is_active')
+      .eq('tenant_id', tenant_id);
     
     // If team filter is provided, join with user_teams
     if (team_id) {
@@ -177,7 +177,8 @@ Deno.serve(async (req) => {
       throw new Error('Failed to fetch active users');
     }
     
-    console.log(`Found ${activeUsers?.length || 0} active users${team_id ? ' in team' : ''}`);
+    const activeCount = activeUsers?.filter(u => u.is_active).length || 0;
+    console.log(`Found ${activeUsers?.length || 0} total users (${activeCount} active)${team_id ? ' in team' : ''}`);
     
     // Create a map of HubSpot owner IDs to user info
     const ownerMap = new Map(

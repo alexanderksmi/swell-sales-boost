@@ -242,7 +242,7 @@ Deno.serve(async (req) => {
       
       if (existingUser) {
         // Update existing user
-        await supabase
+        const { error: updateError } = await supabase
           .from('users')
           .update({
             email: owner.email,
@@ -252,10 +252,16 @@ Deno.serve(async (req) => {
           })
           .eq('id', existingUser.id);
         
+        if (updateError) {
+          console.error(`❌ Failed to update user ${owner.id}:`, updateError);
+          continue;
+        }
+        
+        console.log(`✓ Updated user ${owner.id} - ${fullName}`);
         userId = existingUser.id;
       } else {
         // Insert new user
-        const { data: newUser } = await supabase
+        const { data: newUser, error: insertError } = await supabase
           .from('users')
           .insert({
             tenant_id,
@@ -268,7 +274,12 @@ Deno.serve(async (req) => {
           .select('id')
           .single();
 
-        if (!newUser) continue;
+        if (insertError || !newUser) {
+          console.error(`❌ Failed to insert user ${owner.id}:`, insertError);
+          continue;
+        }
+        
+        console.log(`✓ Inserted new user ${owner.id} - ${fullName}`);
         userId = newUser.id;
         
         // Assign sales_rep role to new users
