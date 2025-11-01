@@ -50,18 +50,24 @@ interface LeaderboardEntry {
   rank: number;
 }
 
-// Cache for closed stage IDs per tenant
-const closedStagesCache = new Map<string, { stageIds: Set<string>; timestamp: number }>();
-const CLOSED_STAGES_CACHE_TTL = 3600000; // 1 hour
+interface StageCategories {
+  openStageIds: Set<string>;
+  closedWonStageIds: Set<string>;
+  closedLostStageIds: Set<string>;
+}
 
-async function getClosedStageIds(tenant_id: string, supabase: any): Promise<Set<string>> {
-  const cached = closedStagesCache.get(tenant_id);
-  if (cached && Date.now() - cached.timestamp < CLOSED_STAGES_CACHE_TTL) {
-    console.log('Using cached closed stages');
-    return cached.stageIds;
+// Cache for stage categories per tenant
+const stageCategoriesCache = new Map<string, { categories: StageCategories; timestamp: number }>();
+const STAGE_CATEGORIES_CACHE_TTL = 3600000; // 1 hour
+
+async function getStageCategories(tenant_id: string, supabase: any): Promise<StageCategories> {
+  const cached = stageCategoriesCache.get(tenant_id);
+  if (cached && Date.now() - cached.timestamp < STAGE_CATEGORIES_CACHE_TTL) {
+    console.log('Using cached stage categories');
+    return cached.categories;
   }
 
-  console.log('Fetching closed stages from HubSpot');
+  console.log('Fetching pipeline configuration from HubSpot');
   
   // Get HubSpot token
   const { data: tokenData, error: tokenError } = await supabase
@@ -72,11 +78,15 @@ async function getClosedStageIds(tenant_id: string, supabase: any): Promise<Set<
 
   if (tokenError || !tokenData) {
     console.error('Failed to get HubSpot token:', tokenError);
-    return new Set<string>();
+    return {
+      openStageIds: new Set<string>(),
+      closedWonStageIds: new Set<string>(),
+      closedLostStageIds: new Set<string>(),
+    };
   }
 
   try {
-    // Fetch pipelines from HubSpot
+    // Fetch all pipelines from HubSpot
     const response = await fetch('https://api.hubapi.com/crm/v3/pipelines/deals', {
       headers: {
         'Authorization': `Bearer ${tokenData.access_token}`,
@@ -86,34 +96,64 @@ async function getClosedStageIds(tenant_id: string, supabase: any): Promise<Set<
 
     if (!response.ok) {
       console.error('Failed to fetch pipelines:', response.status);
-      return new Set<string>();
+      return {
+        openStageIds: new Set<string>(),
+        closedWonStageIds: new Set<string>(),
+        closedLostStageIds: new Set<string>(),
+      };
     }
 
     const data = await response.json();
-    const closedStageIds = new Set<string>();
+    const openStageIds = new Set<string>();
+    const closedWonStageIds = new Set<string>();
+    const closedLostStageIds = new Set<string>();
 
-    // Extract all stages marked as closed
+    // Process all pipelines and categorize stages based on metadata flags
     if (data.results) {
       for (const pipeline of data.results) {
+        console.log(`Processing pipeline: ${pipeline.label || pipeline.id}`);
         if (pipeline.stages) {
           for (const stage of pipeline.stages) {
-            if (stage.metadata?.isClosed === 'true' || stage.metadata?.isClosed === true) {
-              closedStageIds.add(stage.id);
+            const isClosed = stage.metadata?.isClosed === 'true' || stage.metadata?.isClosed === true;
+            const isWon = stage.metadata?.isWon === 'true' || stage.metadata?.isWon === true;
+            
+            if (!isClosed) {
+              // Open stages
+              openStageIds.add(stage.id);
+            } else if (isWon) {
+              // Closed Won stages
+              closedWonStageIds.add(stage.id);
+            } else {
+              // Closed Lost stages
+              closedLostStageIds.add(stage.id);
             }
           }
         }
       }
     }
 
-    console.log(`Found ${closedStageIds.size} closed stages`);
+    console.log(`Stage categorization complete:`);
+    console.log(`- Open stages: ${openStageIds.size}`);
+    console.log(`- Closed Won stages: ${closedWonStageIds.size}`);
+    console.log(`- Closed Lost stages: ${closedLostStageIds.size}`);
+    
+    const categories: StageCategories = {
+      openStageIds,
+      closedWonStageIds,
+      closedLostStageIds,
+    };
     
     // Cache the result
-    closedStagesCache.set(tenant_id, { stageIds: closedStageIds, timestamp: Date.now() });
+    stageCategoriesCache.set(tenant_id, { categories, timestamp: Date.now() });
     
-    return closedStageIds;
+    return categories;
   } catch (error) {
-    console.error('Error fetching closed stages:', error);
-    return new Set<string>();
+    console.error('Error fetching stage categories:', error);
+    return {
+      openStageIds: new Set<string>(),
+      closedWonStageIds: new Set<string>(),
+      closedLostStageIds: new Set<string>(),
+    };
   }
 }
 
@@ -151,10 +191,10 @@ Deno.serve(async (req) => {
       throw new Error('tenant_id required');
     }
     
-    console.log(`Fetching leaderboard for tenant: ${tenant_id}, team: ${team_id || 'all'}`);
+    console.log(`Fetching leaderboard for tenant: ${tenant_id}, team: ${team_id || 'all'}, include_closed: ${include_closed}`);
 
-    // Get closed stage IDs from HubSpot
-    const closedStageIds = await getClosedStageIds(tenant_id, supabase);
+    // Get stage categories from HubSpot
+    const stageCategories = await getStageCategories(tenant_id, supabase);
 
     // Fetch ALL deals from database (we'll filter by stage)
     console.log('Fetching deals from database...');
@@ -169,7 +209,6 @@ Deno.serve(async (req) => {
         dealstage,
         hubspot_owner_id,
         owner_id,
-        hs_is_closed,
         closedate,
         hs_lastmodifieddate,
         users (
@@ -192,26 +231,29 @@ Deno.serve(async (req) => {
     
     console.log(`Fetched ${allDealsData?.length || 0} deals from database (amount > 0)`);
     
-    // Filter deals based on closed stages
+    // Filter deals based on stage categories
     let filteredByStage = allDealsData?.filter(deal => {
       if (!deal.dealstage) return false;
       
-      const isClosed = closedStageIds.has(deal.dealstage);
+      const isOpen = stageCategories.openStageIds.has(deal.dealstage);
+      const isClosedWon = stageCategories.closedWonStageIds.has(deal.dealstage);
+      const isClosedLost = stageCategories.closedLostStageIds.has(deal.dealstage);
       
       if (!include_closed) {
-        // Only open deals (not in closed stages)
-        return !isClosed;
+        // Only open deals
+        return isOpen;
       } else {
-        // Open deals OR closed won from last 12 months
-        if (!isClosed) return true; // Open deal
+        // Include open deals + Closed Won from last 12 months
+        if (isOpen) return true;
         
-        // For closed deals, check if Closed Won and within 12 months
-        if (deal.closedate) {
+        if (isClosedWon && deal.closedate) {
           const closeDate = new Date(deal.closedate);
           const twelveMonthsAgo = new Date();
           twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
           return closeDate >= twelveMonthsAgo;
         }
+        
+        // Never include Closed Lost
         return false;
       }
     });
