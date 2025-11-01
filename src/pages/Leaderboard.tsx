@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Trophy, LogOut, Loader2, TrendingUp, DollarSign } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -50,7 +51,7 @@ const Leaderboard = () => {
   const [teams, setTeams] = useState<Team[]>([]);
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
+  const [showClosedDeals, setShowClosedDeals] = useState(false);
 
   useEffect(() => {
     const fetchUserData = async () => {
@@ -104,7 +105,8 @@ const Leaderboard = () => {
           {
             body: { 
               tenant_id: sessionData.tenant.id,
-              team_id: selectedTeamId 
+              team_id: selectedTeamId,
+              include_closed: showClosedDeals
             },
           }
         );
@@ -142,35 +144,10 @@ const Leaderboard = () => {
     };
 
     fetchUserData();
-  }, [navigate, selectedTeamId]);
+  }, [navigate, selectedTeamId, showClosedDeals]);
 
   const handleTeamChange = (teamId: string) => {
     setSelectedTeamId(teamId === 'all' ? null : teamId);
-  };
-
-  const handleSyncData = async () => {
-    if (!tenantId || isSyncing) return;
-    
-    setIsSyncing(true);
-    toast.info('Synkroniserer data fra HubSpot...');
-    
-    try {
-      const { error } = await supabase.functions.invoke('sync-hubspot-data', {
-        body: { tenant_id: tenantId }
-      });
-      
-      if (error) throw error;
-      
-      toast.success('Data synkronisert! Oppdaterer...');
-      
-      // Refresh the page data
-      window.location.reload();
-    } catch (error) {
-      console.error('Sync error:', error);
-      toast.error('Kunne ikke synkronisere data');
-    } finally {
-      setIsSyncing(false);
-    }
   };
 
   const handleLogout = async () => {
@@ -239,14 +216,16 @@ const Leaderboard = () => {
               </Select>
             )}
             
-            <Button 
-              variant="outline" 
-              size="sm"
-              onClick={handleSyncData}
-              disabled={isSyncing}
-            >
-              {isSyncing ? 'Synkroniserer...' : 'Synkroniser data'}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Checkbox 
+                id="show-closed"
+                checked={showClosedDeals}
+                onCheckedChange={(checked) => setShowClosedDeals(checked === true)}
+              />
+              <label htmlFor="show-closed" className="text-sm text-muted-foreground cursor-pointer">
+                Vis lukkede deals
+              </label>
+            </div>
             
             <Button variant="outline" size="sm" onClick={handleLogout}>
               <LogOut className="w-4 h-4 mr-2" />

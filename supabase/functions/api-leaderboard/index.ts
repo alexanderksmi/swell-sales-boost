@@ -71,14 +71,17 @@ Deno.serve(async (req) => {
     // Extract tenant and optional team_id from request
     let tenant_id: string | null = null;
     let team_id: string | null = null;
+    let include_closed = false;
     
     if (req.method === 'POST') {
       const body = await req.json().catch(() => ({}));
       tenant_id = body.tenant_id;
       team_id = body.team_id;
+      include_closed = body.include_closed || false;
     } else {
       tenant_id = url.searchParams.get('tenant_id');
       team_id = url.searchParams.get('team_id');
+      include_closed = url.searchParams.get('include_closed') === 'true';
     }
     
     if (!tenant_id) {
@@ -105,9 +108,9 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Fetch open deals directly from database
-    console.log('Fetching open deals from database...');
-    const { data: openDealsData, error: dealsError } = await supabase
+    // Fetch deals directly from database
+    console.log(`Fetching ${include_closed ? 'all' : 'open'} deals from database...`);
+    let dealsQuery = supabase
       .from('deals')
       .select(`
         id,
@@ -127,8 +130,14 @@ Deno.serve(async (req) => {
           is_active
         )
       `)
-      .eq('tenant_id', tenant_id)
-      .eq('hs_is_closed', false);
+      .eq('tenant_id', tenant_id);
+    
+    // Only filter by hs_is_closed if not including closed deals
+    if (!include_closed) {
+      dealsQuery = dealsQuery.eq('hs_is_closed', false);
+    }
+    
+    const { data: openDealsData, error: dealsError } = await dealsQuery;
     
     if (dealsError) {
       console.error('Failed to fetch deals:', dealsError);

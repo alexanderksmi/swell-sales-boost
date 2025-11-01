@@ -477,6 +477,10 @@ Deno.serve(async (req) => {
     
     // Sync deals to database and track stage changes
     let stageChangesCount = 0;
+    let openDealsCount = 0;
+    let closedDealsCount = 0;
+    
+    console.log('\n=== Deal Status Summary ===');
     
     for (const deal of allDeals) {
       if (!deal.id) continue;
@@ -495,6 +499,18 @@ Deno.serve(async (req) => {
         .maybeSingle();
       
       const isClosed = deal.properties.hs_is_closed === 'true';
+      
+      // Track open vs closed deals
+      if (isClosed) {
+        closedDealsCount++;
+      } else {
+        openDealsCount++;
+      }
+      
+      // Log first few deals for debugging
+      if (allDeals.indexOf(deal) < 5) {
+        console.log(`Deal: "${deal.properties.dealname}" | Stage: ${deal.properties.dealstage} | Closed: ${isClosed} | Owner: ${deal.properties.hubspot_owner_id || 'none'}`);
+      }
       
       if (existingDeal) {
         // Check for stage change
@@ -555,7 +571,11 @@ Deno.serve(async (req) => {
       }
     }
     
-    console.log(`Synced ${allDeals.length} deals with ${stageChangesCount} stage changes`);
+    console.log(`\n=== Sync Summary ===`);
+    console.log(`Total deals synced: ${allDeals.length}`);
+    console.log(`Open deals: ${openDealsCount}`);
+    console.log(`Closed deals: ${closedDealsCount}`);
+    console.log(`Stage changes tracked: ${stageChangesCount}`);
     
     const deals: HubSpotDeal[] = allDeals;
 
