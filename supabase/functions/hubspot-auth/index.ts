@@ -72,19 +72,10 @@ if (!envCheck.valid) {
 
 // OAuth scopes required for HubSpot integration
 const SCOPES = [
-  'crm.objects.appointments.read',
-  'crm.objects.companies.read',
   'crm.objects.contacts.read',
   'crm.objects.deals.read',
-  'crm.objects.goals.read',
-  'crm.objects.line_items.read',
   'crm.objects.owners.read',
-  'crm.objects.products.read',
-  'crm.objects.quotes.read',
   'crm.objects.users.read',
-  'crm.schemas.companies.read',
-  'crm.schemas.contacts.read',
-  'crm.schemas.deals.read',
   'oauth',
 ].join(' ');
 
