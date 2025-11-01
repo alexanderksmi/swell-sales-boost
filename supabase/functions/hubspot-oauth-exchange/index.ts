@@ -403,6 +403,22 @@ Deno.serve(async (req) => {
 
     console.log('Session created, redirecting to callback with session_key');
 
+    // Trigger automatic data sync in background (fire-and-forget)
+    try {
+      console.log('Triggering automatic HubSpot data sync for tenant:', tenant.id);
+      fetch(`${supabaseUrl}/functions/v1/sync-hubspot-data`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${supabaseKey}`,
+        },
+        body: JSON.stringify({ tenant_id: tenant.id }),
+      }).catch(err => console.error('Background sync failed:', err));
+    } catch (error) {
+      console.log('Failed to trigger background sync:', error);
+      // Don't block the OAuth flow if sync fails
+    }
+
     // Redirect to callback with session_key
     return new Response(null, {
       status: 302,

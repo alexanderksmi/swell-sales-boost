@@ -50,6 +50,7 @@ const Leaderboard = () => {
   const [teams, setTeams] = useState<Team[]>([]);
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   useEffect(() => {
     const fetchUserData = async () => {
@@ -147,6 +148,31 @@ const Leaderboard = () => {
     setSelectedTeamId(teamId === 'all' ? null : teamId);
   };
 
+  const handleSyncData = async () => {
+    if (!tenantId || isSyncing) return;
+    
+    setIsSyncing(true);
+    toast.info('Synkroniserer data fra HubSpot...');
+    
+    try {
+      const { error } = await supabase.functions.invoke('sync-hubspot-data', {
+        body: { tenant_id: tenantId }
+      });
+      
+      if (error) throw error;
+      
+      toast.success('Data synkronisert! Oppdaterer...');
+      
+      // Refresh the page data
+      window.location.reload();
+    } catch (error) {
+      console.error('Sync error:', error);
+      toast.error('Kunne ikke synkronisere data');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const handleLogout = async () => {
     try {
       // Clear session from localStorage
@@ -213,9 +239,15 @@ const Leaderboard = () => {
               </Select>
             )}
             
-            <span className="text-sm text-muted-foreground">
-              Innlogget
-            </span>
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={handleSyncData}
+              disabled={isSyncing}
+            >
+              {isSyncing ? 'Synkroniserer...' : 'Synkroniser data'}
+            </Button>
+            
             <Button variant="outline" size="sm" onClick={handleLogout}>
               <LogOut className="w-4 h-4 mr-2" />
               Logg ut
