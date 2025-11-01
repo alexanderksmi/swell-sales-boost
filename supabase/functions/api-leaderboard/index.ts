@@ -104,33 +104,24 @@ async function getStageCategories(tenantId: string): Promise<StageCategories> {
   const closedWonStageIds = new Set<string>();
   const closedLostStageIds = new Set<string>();
 
-  // Helper to parse boolean values from HubSpot metadata
-  const toBool = (v: any): boolean => {
-    return v === true || v === 'true' || v === 'True' || v === 1 || v === '1';
-  };
-
-  // Process all pipelines and their stages
+  // Process all pipelines and their stages - simplified logic based on stage labels
   for (const pipeline of pipelinesData.results || []) {
     console.log(`Processing pipeline: ${pipeline.label} (${pipeline.id})`);
     
     for (const stage of pipeline.stages || []) {
-      const isClosed = toBool(stage.metadata?.isClosed);
-      const isWon = toBool(stage.metadata?.isWon);
+      const labelLower = (stage.label || '').toLowerCase();
       
-      // Categorize based on explicit metadata values
-      if (isClosed && isWon) {
+      // Categorize purely based on stage label (case-insensitive)
+      if (labelLower.includes('closed won')) {
         closedWonStageIds.add(stage.id);
         console.log(`  Stage ${stage.id} (${stage.label}): Closed Won`);
-      } else if (isClosed && isWon === false) {
+      } else if (labelLower.includes('closed lost')) {
         closedLostStageIds.add(stage.id);
         console.log(`  Stage ${stage.id} (${stage.label}): Closed Lost`);
-      } else if (!isClosed) {
+      } else {
+        // Everything else is open
         openStageIds.add(stage.id);
         console.log(`  Stage ${stage.id} (${stage.label}): Open`);
-      } else {
-        // Unknown closed state - log for monitoring
-        console.log(`  Stage ${stage.id} (${stage.label}): Unknown closed state (treating as open)`);
-        openStageIds.add(stage.id);
       }
     }
   }
