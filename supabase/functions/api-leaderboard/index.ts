@@ -367,17 +367,14 @@ Deno.serve(async (req) => {
     const entries: LeaderboardEntry[] = [];
     
     ownerDeals.forEach((data, ownerId) => {
-      // Only include users who have at least one deal matching our criteria
-      if (data.maxDeal) {
-        entries.push({
-          owner_id: ownerId,
-          owner_name: data.user.full_name || 'Unknown',
-          owner_email: data.user.email || '',
-          largest_deal_amount: data.maxDeal.amount || 0,
-          largest_deal_name: data.maxDeal.name || 'Ingen deal',
-          rank: 0, // Will be set after sorting
-        });
-      }
+      entries.push({
+        owner_id: ownerId,
+        owner_name: data.user.full_name || 'Unknown',
+        owner_email: data.user.email || '',
+        largest_deal_amount: data.maxDeal?.amount || 0,
+        largest_deal_name: data.maxDeal?.name || 'Ingen deal',
+        rank: 0, // Will be set after sorting
+      });
     });
 
     // Sort by largest deal amount descending
