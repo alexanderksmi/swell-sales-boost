@@ -35,6 +35,15 @@ interface HubSpotDeal {
   };
 }
 
+interface HubSpotPipelineStage {
+  id: string;
+  label: string;
+  metadata: {
+    isClosed?: string;
+    probability?: string;
+  };
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -416,6 +425,47 @@ Deno.serve(async (req) => {
     // =============== SYNC DEALS ===============
     console.log('\n=== Syncing Deals ===');
     
+    // First, fetch all pipelines and their stages to understand which stages are "closed"
+    console.log('Fetching pipeline configurations...');
+    const closedStageIds = new Set<string>();
+    
+    try {
+      const pipelinesResponse = await fetchWithRetry(
+        'https://api.hubapi.com/crm/v3/pipelines/deals',
+        {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+      
+      const pipelinesData = await pipelinesResponse.json();
+      
+      if (pipelinesData.results) {
+        for (const pipeline of pipelinesData.results) {
+          console.log(`Pipeline: ${pipeline.label} (${pipeline.id})`);
+          if (pipeline.stages) {
+            for (const stage of pipeline.stages) {
+              const isClosed = stage.metadata?.isClosed === 'true' || stage.metadata?.isClosed === true;
+              if (isClosed) {
+                closedStageIds.add(stage.id);
+                console.log(`  - ${stage.label} (${stage.id}) = CLOSED`);
+              } else {
+                console.log(`  - ${stage.label} (${stage.id}) = OPEN`);
+              }
+            }
+          }
+        }
+      }
+      
+      console.log(`Found ${closedStageIds.size} closed stage IDs`);
+    } catch (error) {
+      console.error('Failed to fetch pipeline configurations:', error);
+      console.log('Will fall back to hs_is_closed field only');
+    }
+    
     const fetchAllDeals = async (): Promise<HubSpotDeal[]> => {
       let allDeals: HubSpotDeal[] = [];
       let after: string | undefined;
@@ -504,13 +554,11 @@ Deno.serve(async (req) => {
         .eq('hubspot_deal_id', deal.id)
         .maybeSingle();
       
-      // Check if deal is closed - check both hs_is_closed field and dealstage
-      const dealstage = deal.properties.dealstage?.toLowerCase() || '';
-      const isClosed = 
-        deal.properties.hs_is_closed === 'true' || 
-        dealstage.includes('closedwon') ||
-        dealstage.includes('closedlost') ||
-        dealstage.includes('closed');
+      // Check if deal is closed - use pipeline stage metadata if available, otherwise fall back to hs_is_closed
+      const stageId = deal.properties.dealstage;
+      const isClosed = closedStageIds.size > 0 
+        ? closedStageIds.has(stageId) // Use pipeline metadata if we have it
+        : deal.properties.hs_is_closed === 'true'; // Fallback to hs_is_closed field
       
       // Track open vs closed deals
       if (isClosed) {
