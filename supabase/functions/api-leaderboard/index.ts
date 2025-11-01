@@ -50,9 +50,94 @@ interface LeaderboardEntry {
   rank: number;
 }
 
-// Cache disabled to always fetch fresh data
-const cache = new Map<string, { data: any; timestamp: number }>();
-const CACHE_TTL = 0; // Cache disabled
+// Cache for pipeline stage categories
+interface StageCategories {
+  openStageIds: Set<string>;
+  closedWonStageIds: Set<string>;
+  closedLostStageIds: Set<string>;
+}
+
+const stageCategoriesCache = new Map<string, { data: StageCategories; timestamp: number }>();
+const STAGE_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+
+// Function to fetch and categorize pipeline stages from HubSpot
+async function getStageCategories(tenantId: string): Promise<StageCategories> {
+  const cached = stageCategoriesCache.get(tenantId);
+  
+  if (cached && Date.now() - cached.timestamp < STAGE_CACHE_TTL) {
+    console.log('Using cached stage categories');
+    return cached.data;
+  }
+
+  console.log('Fetching pipeline stages from HubSpot...');
+  
+  const supabase = createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!);
+  
+  // Get HubSpot access token
+  const { data: tokenData, error: tokenError } = await supabase
+    .from('hubspot_tokens')
+    .select('access_token')
+    .eq('tenant_id', tenantId)
+    .single();
+  
+  if (tokenError || !tokenData) {
+    console.error('Failed to get HubSpot token:', tokenError);
+    throw new Error('Failed to get HubSpot access token');
+  }
+
+  // Fetch all pipelines from HubSpot
+  const response = await fetch('https://api.hubapi.com/crm/v3/pipelines/deals', {
+    headers: {
+      'Authorization': `Bearer ${tokenData.access_token}`,
+      'Content-Type': 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    console.error('HubSpot API error:', response.status, await response.text());
+    throw new Error('Failed to fetch pipelines from HubSpot');
+  }
+
+  const pipelinesData = await response.json();
+  
+  const openStageIds = new Set<string>();
+  const closedWonStageIds = new Set<string>();
+  const closedLostStageIds = new Set<string>();
+
+  // Process all pipelines and their stages
+  for (const pipeline of pipelinesData.results || []) {
+    console.log(`Processing pipeline: ${pipeline.label} (${pipeline.id})`);
+    
+    for (const stage of pipeline.stages || []) {
+      const isClosed = stage.metadata?.isClosed === 'true' || stage.metadata?.isClosed === true;
+      const isWon = stage.metadata?.isWon === 'true' || stage.metadata?.isWon === true;
+      
+      if (isWon) {
+        closedWonStageIds.add(stage.id);
+        console.log(`  Stage ${stage.id} (${stage.label}): Closed Won`);
+      } else if (isClosed) {
+        closedLostStageIds.add(stage.id);
+        console.log(`  Stage ${stage.id} (${stage.label}): Closed Lost`);
+      } else {
+        openStageIds.add(stage.id);
+        console.log(`  Stage ${stage.id} (${stage.label}): Open`);
+      }
+    }
+  }
+
+  const categories: StageCategories = {
+    openStageIds,
+    closedWonStageIds,
+    closedLostStageIds,
+  };
+
+  console.log(`Categorized stages - Open: ${openStageIds.size}, Won: ${closedWonStageIds.size}, Lost: ${closedLostStageIds.size}`);
+
+  // Cache the result
+  stageCategoriesCache.set(tenantId, { data: categories, timestamp: Date.now() });
+
+  return categories;
+}
 
 Deno.serve(async (req) => {
   const origin = req.headers.get('origin');
@@ -90,27 +175,12 @@ Deno.serve(async (req) => {
     
     console.log(`Fetching leaderboard for tenant: ${tenant_id}, team: ${team_id || 'all'}`);
 
-    const cacheKey = `${tenant_id}-${path}`;
-    const cached = cache.get(cacheKey);
-    
-    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-      console.log('Returning cached data');
-      return new Response(
-        JSON.stringify(cached.data),
-        {
-          status: 200,
-          headers: {
-            ...headers,
-            'Content-Type': 'application/json',
-            'X-Cache': 'HIT',
-          },
-        }
-      );
-    }
+    // Get stage categories from HubSpot pipelines
+    const stageCategories = await getStageCategories(tenant_id);
 
-    // Fetch deals directly from database
-    console.log(`Fetching ${include_closed ? 'all' : 'open'} deals from database...`);
-    let dealsQuery = supabase
+    // Fetch all deals with amount > 0 from database
+    console.log('Fetching deals from database...');
+    const { data: allDealsData, error: dealsError } = await supabase
       .from('deals')
       .select(`
         id,
@@ -121,7 +191,8 @@ Deno.serve(async (req) => {
         dealstage,
         hubspot_owner_id,
         owner_id,
-        hs_is_closed,
+        closedate,
+        hs_lastmodifieddate,
         users (
           id,
           full_name,
@@ -130,21 +201,47 @@ Deno.serve(async (req) => {
           is_active
         )
       `)
-      .eq('tenant_id', tenant_id);
-    
-    // Only filter by hs_is_closed if not including closed deals
-    if (!include_closed) {
-      dealsQuery = dealsQuery.eq('hs_is_closed', false);
-    }
-    
-    const { data: openDealsData, error: dealsError } = await dealsQuery;
+      .eq('tenant_id', tenant_id)
+      .gt('amount', 0);
     
     if (dealsError) {
       console.error('Failed to fetch deals:', dealsError);
       throw new Error('Failed to fetch deals from database');
     }
     
-    console.log(`Fetched ${openDealsData?.length || 0} open deals from database`);
+    console.log(`Fetched ${allDealsData?.length || 0} deals from database`);
+
+    // Filter deals based on stage categories
+    const twelveMonthsAgo = new Date();
+    twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
+
+    const filteredByStage = allDealsData?.filter(deal => {
+      if (!deal.dealstage) return false;
+
+      // Always exclude Closed Lost
+      if (stageCategories.closedLostStageIds.has(deal.dealstage)) {
+        return false;
+      }
+
+      // Include all open deals
+      if (stageCategories.openStageIds.has(deal.dealstage)) {
+        return true;
+      }
+
+      // If include_closed is true, include Closed Won from last 12 months
+      if (include_closed && stageCategories.closedWonStageIds.has(deal.dealstage)) {
+        if (deal.closedate) {
+          const closeDate = new Date(deal.closedate);
+          return closeDate >= twelveMonthsAgo;
+        }
+      }
+
+      return false;
+    });
+
+    console.log(`After stage filtering: ${filteredByStage?.length || 0} deals (open + ${include_closed ? 'won' : '0'})`);
+    
+    const openDealsData = filteredByStage;
     
     // Fetch team members if team filter is specified
     let teamUserIds: Set<string> | null = null;
@@ -241,9 +338,28 @@ Deno.serve(async (req) => {
             id: deal.hubspot_deal_id,
             name: deal.dealname,
             amount: dealAmount,
+            closedate: deal.closedate,
+            lastModified: deal.hs_lastmodifieddate,
           },
           user: existing.user,
         });
+      } else if (dealAmount === parseFloat(String(existing.maxDeal.amount || 0))) {
+        // If amounts are equal, prefer the newer deal
+        const existingDate = new Date(existing.maxDeal.closedate || existing.maxDeal.lastModified || 0);
+        const newDate = new Date(deal.closedate || deal.hs_lastmodifieddate || 0);
+        
+        if (newDate > existingDate) {
+          ownerDeals.set(deal.owner_id, {
+            maxDeal: {
+              id: deal.hubspot_deal_id,
+              name: deal.dealname,
+              amount: dealAmount,
+              closedate: deal.closedate,
+              lastModified: deal.hs_lastmodifieddate,
+            },
+            user: existing.user,
+          });
+        }
       }
     });
 
@@ -276,9 +392,6 @@ Deno.serve(async (req) => {
       total_entries: entries.length,
       last_updated: new Date().toISOString(),
     };
-
-    // Cache the result
-    cache.set(cacheKey, { data: result, timestamp: Date.now() });
 
     console.log(`Leaderboard generated with ${entries.length} entries`);
 
