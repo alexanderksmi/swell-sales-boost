@@ -50,112 +50,9 @@ interface LeaderboardEntry {
   rank: number;
 }
 
-interface StageCategories {
-  openStageIds: Set<string>;
-  closedWonStageIds: Set<string>;
-  closedLostStageIds: Set<string>;
-}
-
-// Cache for stage categories per tenant
-const stageCategoriesCache = new Map<string, { categories: StageCategories; timestamp: number }>();
-const STAGE_CATEGORIES_CACHE_TTL = 3600000; // 1 hour
-
-async function getStageCategories(tenant_id: string, supabase: any): Promise<StageCategories> {
-  const cached = stageCategoriesCache.get(tenant_id);
-  if (cached && Date.now() - cached.timestamp < STAGE_CATEGORIES_CACHE_TTL) {
-    console.log('Using cached stage categories');
-    return cached.categories;
-  }
-
-  console.log('Fetching pipeline configuration from HubSpot');
-  
-  // Get HubSpot token
-  const { data: tokenData, error: tokenError } = await supabase
-    .from('hubspot_tokens')
-    .select('access_token')
-    .eq('tenant_id', tenant_id)
-    .single();
-
-  if (tokenError || !tokenData) {
-    console.error('Failed to get HubSpot token:', tokenError);
-    return {
-      openStageIds: new Set<string>(),
-      closedWonStageIds: new Set<string>(),
-      closedLostStageIds: new Set<string>(),
-    };
-  }
-
-  try {
-    // Fetch all pipelines from HubSpot
-    const response = await fetch('https://api.hubapi.com/crm/v3/pipelines/deals', {
-      headers: {
-        'Authorization': `Bearer ${tokenData.access_token}`,
-        'Content-Type': 'application/json',
-      },
-    });
-
-    if (!response.ok) {
-      console.error('Failed to fetch pipelines:', response.status);
-      return {
-        openStageIds: new Set<string>(),
-        closedWonStageIds: new Set<string>(),
-        closedLostStageIds: new Set<string>(),
-      };
-    }
-
-    const data = await response.json();
-    const openStageIds = new Set<string>();
-    const closedWonStageIds = new Set<string>();
-    const closedLostStageIds = new Set<string>();
-
-    // Process all pipelines and categorize stages based on metadata flags
-    if (data.results) {
-      for (const pipeline of data.results) {
-        console.log(`Processing pipeline: ${pipeline.label || pipeline.id}`);
-        if (pipeline.stages) {
-          for (const stage of pipeline.stages) {
-            const isClosed = stage.metadata?.isClosed === 'true' || stage.metadata?.isClosed === true;
-            const isWon = stage.metadata?.isWon === 'true' || stage.metadata?.isWon === true;
-            
-            if (!isClosed) {
-              // Open stages
-              openStageIds.add(stage.id);
-            } else if (isWon) {
-              // Closed Won stages
-              closedWonStageIds.add(stage.id);
-            } else {
-              // Closed Lost stages
-              closedLostStageIds.add(stage.id);
-            }
-          }
-        }
-      }
-    }
-
-    console.log(`Stage categorization complete:`);
-    console.log(`- Open stages: ${openStageIds.size}`);
-    console.log(`- Closed Won stages: ${closedWonStageIds.size}`);
-    console.log(`- Closed Lost stages: ${closedLostStageIds.size}`);
-    
-    const categories: StageCategories = {
-      openStageIds,
-      closedWonStageIds,
-      closedLostStageIds,
-    };
-    
-    // Cache the result
-    stageCategoriesCache.set(tenant_id, { categories, timestamp: Date.now() });
-    
-    return categories;
-  } catch (error) {
-    console.error('Error fetching stage categories:', error);
-    return {
-      openStageIds: new Set<string>(),
-      closedWonStageIds: new Set<string>(),
-      closedLostStageIds: new Set<string>(),
-    };
-  }
-}
+// Cache disabled to always fetch fresh data
+const cache = new Map<string, { data: any; timestamp: number }>();
+const CACHE_TTL = 0; // Cache disabled
 
 Deno.serve(async (req) => {
   const origin = req.headers.get('origin');
@@ -191,13 +88,28 @@ Deno.serve(async (req) => {
       throw new Error('tenant_id required');
     }
     
-    console.log(`Fetching leaderboard for tenant: ${tenant_id}, team: ${team_id || 'all'}, include_closed: ${include_closed}`);
+    console.log(`Fetching leaderboard for tenant: ${tenant_id}, team: ${team_id || 'all'}`);
 
-    // Get stage categories from HubSpot
-    const stageCategories = await getStageCategories(tenant_id, supabase);
+    const cacheKey = `${tenant_id}-${path}`;
+    const cached = cache.get(cacheKey);
+    
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+      console.log('Returning cached data');
+      return new Response(
+        JSON.stringify(cached.data),
+        {
+          status: 200,
+          headers: {
+            ...headers,
+            'Content-Type': 'application/json',
+            'X-Cache': 'HIT',
+          },
+        }
+      );
+    }
 
-    // Fetch ALL deals from database (we'll filter by stage)
-    console.log('Fetching deals from database...');
+    // Fetch deals directly from database
+    console.log(`Fetching ${include_closed ? 'all' : 'open'} deals from database...`);
     let dealsQuery = supabase
       .from('deals')
       .select(`
@@ -209,8 +121,7 @@ Deno.serve(async (req) => {
         dealstage,
         hubspot_owner_id,
         owner_id,
-        closedate,
-        hs_lastmodifieddate,
+        hs_is_closed,
         users (
           id,
           full_name,
@@ -219,46 +130,21 @@ Deno.serve(async (req) => {
           is_active
         )
       `)
-      .eq('tenant_id', tenant_id)
-      .gt('amount', 0); // Only deals with amount > 0
+      .eq('tenant_id', tenant_id);
     
-    const { data: allDealsData, error: dealsError } = await dealsQuery;
+    // Only filter by hs_is_closed if not including closed deals
+    if (!include_closed) {
+      dealsQuery = dealsQuery.eq('hs_is_closed', false);
+    }
+    
+    const { data: openDealsData, error: dealsError } = await dealsQuery;
     
     if (dealsError) {
       console.error('Failed to fetch deals:', dealsError);
       throw new Error('Failed to fetch deals from database');
     }
     
-    console.log(`Fetched ${allDealsData?.length || 0} deals from database (amount > 0)`);
-    
-    // Filter deals based on stage categories
-    let filteredByStage = allDealsData?.filter(deal => {
-      if (!deal.dealstage) return false;
-      
-      const isOpen = stageCategories.openStageIds.has(deal.dealstage);
-      const isClosedWon = stageCategories.closedWonStageIds.has(deal.dealstage);
-      const isClosedLost = stageCategories.closedLostStageIds.has(deal.dealstage);
-      
-      if (!include_closed) {
-        // Only open deals
-        return isOpen;
-      } else {
-        // Include open deals + Closed Won from last 12 months
-        if (isOpen) return true;
-        
-        if (isClosedWon && deal.closedate) {
-          const closeDate = new Date(deal.closedate);
-          const twelveMonthsAgo = new Date();
-          twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
-          return closeDate >= twelveMonthsAgo;
-        }
-        
-        // Never include Closed Lost
-        return false;
-      }
-    });
-    
-    console.log(`After stage filtering: ${filteredByStage?.length || 0} deals`);
+    console.log(`Fetched ${openDealsData?.length || 0} open deals from database`);
     
     // Fetch team members if team filter is specified
     let teamUserIds: Set<string> | null = null;
@@ -300,8 +186,8 @@ Deno.serve(async (req) => {
     
     // Filter deals by team if specified
     const filteredDeals = teamUserIds 
-      ? filteredByStage?.filter(d => d.owner_id && teamUserIds.has(d.owner_id))
-      : filteredByStage;
+      ? openDealsData?.filter(d => d.owner_id && teamUserIds.has(d.owner_id))
+      : openDealsData;
     
     console.log(`Processing ${filteredDeals?.length || 0} deals (after team filter)`);
     
@@ -348,36 +234,16 @@ Deno.serve(async (req) => {
       if (!existing) return; // Skip if user not in our active users list
       
       const dealAmount = parseFloat(String(deal.amount || 0));
-      const existingAmount = existing.maxDeal ? parseFloat(String(existing.maxDeal.amount || 0)) : 0;
       
-      // Update if this deal is larger, or if equal amount, use most recent
-      if (!existing.maxDeal || dealAmount > existingAmount) {
+      if (!existing.maxDeal || dealAmount > parseFloat(String(existing.maxDeal.amount || 0))) {
         ownerDeals.set(deal.owner_id, {
           maxDeal: {
             id: deal.hubspot_deal_id,
             name: deal.dealname,
             amount: dealAmount,
-            date: deal.closedate || deal.hs_lastmodifieddate,
           },
           user: existing.user,
         });
-      } else if (dealAmount === existingAmount) {
-        // Same amount - pick most recent
-        const existingDate = existing.maxDeal.date ? new Date(existing.maxDeal.date) : new Date(0);
-        const currentDate = deal.closedate ? new Date(deal.closedate) : 
-                           deal.hs_lastmodifieddate ? new Date(deal.hs_lastmodifieddate) : new Date(0);
-        
-        if (currentDate > existingDate) {
-          ownerDeals.set(deal.owner_id, {
-            maxDeal: {
-              id: deal.hubspot_deal_id,
-              name: deal.dealname,
-              amount: dealAmount,
-              date: deal.closedate || deal.hs_lastmodifieddate,
-            },
-            user: existing.user,
-          });
-        }
       }
     });
 
@@ -411,6 +277,9 @@ Deno.serve(async (req) => {
       last_updated: new Date().toISOString(),
     };
 
+    // Cache the result
+    cache.set(cacheKey, { data: result, timestamp: Date.now() });
+
     console.log(`Leaderboard generated with ${entries.length} entries`);
 
     return new Response(
@@ -420,6 +289,8 @@ Deno.serve(async (req) => {
         headers: {
           ...headers,
           'Content-Type': 'application/json',
+          'X-Cache': 'MISS',
+          'Cache-Control': 'private, max-age=300',
         },
       }
     );
