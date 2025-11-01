@@ -50,9 +50,72 @@ interface LeaderboardEntry {
   rank: number;
 }
 
-// Cache disabled to always fetch fresh data
-const cache = new Map<string, { data: any; timestamp: number }>();
-const CACHE_TTL = 0; // Cache disabled
+// Cache for closed stage IDs per tenant
+const closedStagesCache = new Map<string, { stageIds: Set<string>; timestamp: number }>();
+const CLOSED_STAGES_CACHE_TTL = 3600000; // 1 hour
+
+async function getClosedStageIds(tenant_id: string, supabase: any): Promise<Set<string>> {
+  const cached = closedStagesCache.get(tenant_id);
+  if (cached && Date.now() - cached.timestamp < CLOSED_STAGES_CACHE_TTL) {
+    console.log('Using cached closed stages');
+    return cached.stageIds;
+  }
+
+  console.log('Fetching closed stages from HubSpot');
+  
+  // Get HubSpot token
+  const { data: tokenData, error: tokenError } = await supabase
+    .from('hubspot_tokens')
+    .select('access_token')
+    .eq('tenant_id', tenant_id)
+    .single();
+
+  if (tokenError || !tokenData) {
+    console.error('Failed to get HubSpot token:', tokenError);
+    return new Set<string>();
+  }
+
+  try {
+    // Fetch pipelines from HubSpot
+    const response = await fetch('https://api.hubapi.com/crm/v3/pipelines/deals', {
+      headers: {
+        'Authorization': `Bearer ${tokenData.access_token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      console.error('Failed to fetch pipelines:', response.status);
+      return new Set<string>();
+    }
+
+    const data = await response.json();
+    const closedStageIds = new Set<string>();
+
+    // Extract all stages marked as closed
+    if (data.results) {
+      for (const pipeline of data.results) {
+        if (pipeline.stages) {
+          for (const stage of pipeline.stages) {
+            if (stage.metadata?.isClosed === 'true' || stage.metadata?.isClosed === true) {
+              closedStageIds.add(stage.id);
+            }
+          }
+        }
+      }
+    }
+
+    console.log(`Found ${closedStageIds.size} closed stages`);
+    
+    // Cache the result
+    closedStagesCache.set(tenant_id, { stageIds: closedStageIds, timestamp: Date.now() });
+    
+    return closedStageIds;
+  } catch (error) {
+    console.error('Error fetching closed stages:', error);
+    return new Set<string>();
+  }
+}
 
 Deno.serve(async (req) => {
   const origin = req.headers.get('origin');
@@ -90,26 +153,11 @@ Deno.serve(async (req) => {
     
     console.log(`Fetching leaderboard for tenant: ${tenant_id}, team: ${team_id || 'all'}`);
 
-    const cacheKey = `${tenant_id}-${path}`;
-    const cached = cache.get(cacheKey);
-    
-    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-      console.log('Returning cached data');
-      return new Response(
-        JSON.stringify(cached.data),
-        {
-          status: 200,
-          headers: {
-            ...headers,
-            'Content-Type': 'application/json',
-            'X-Cache': 'HIT',
-          },
-        }
-      );
-    }
+    // Get closed stage IDs from HubSpot
+    const closedStageIds = await getClosedStageIds(tenant_id, supabase);
 
-    // Fetch deals directly from database
-    console.log(`Fetching ${include_closed ? 'all' : 'open'} deals from database...`);
+    // Fetch ALL deals from database (we'll filter by stage)
+    console.log('Fetching deals from database...');
     let dealsQuery = supabase
       .from('deals')
       .select(`
@@ -122,6 +170,8 @@ Deno.serve(async (req) => {
         hubspot_owner_id,
         owner_id,
         hs_is_closed,
+        closedate,
+        hs_lastmodifieddate,
         users (
           id,
           full_name,
@@ -130,21 +180,43 @@ Deno.serve(async (req) => {
           is_active
         )
       `)
-      .eq('tenant_id', tenant_id);
+      .eq('tenant_id', tenant_id)
+      .gt('amount', 0); // Only deals with amount > 0
     
-    // Only filter by hs_is_closed if not including closed deals
-    if (!include_closed) {
-      dealsQuery = dealsQuery.eq('hs_is_closed', false);
-    }
-    
-    const { data: openDealsData, error: dealsError } = await dealsQuery;
+    const { data: allDealsData, error: dealsError } = await dealsQuery;
     
     if (dealsError) {
       console.error('Failed to fetch deals:', dealsError);
       throw new Error('Failed to fetch deals from database');
     }
     
-    console.log(`Fetched ${openDealsData?.length || 0} open deals from database`);
+    console.log(`Fetched ${allDealsData?.length || 0} deals from database (amount > 0)`);
+    
+    // Filter deals based on closed stages
+    let filteredByStage = allDealsData?.filter(deal => {
+      if (!deal.dealstage) return false;
+      
+      const isClosed = closedStageIds.has(deal.dealstage);
+      
+      if (!include_closed) {
+        // Only open deals (not in closed stages)
+        return !isClosed;
+      } else {
+        // Open deals OR closed won from last 12 months
+        if (!isClosed) return true; // Open deal
+        
+        // For closed deals, check if Closed Won and within 12 months
+        if (deal.closedate) {
+          const closeDate = new Date(deal.closedate);
+          const twelveMonthsAgo = new Date();
+          twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 12);
+          return closeDate >= twelveMonthsAgo;
+        }
+        return false;
+      }
+    });
+    
+    console.log(`After stage filtering: ${filteredByStage?.length || 0} deals`);
     
     // Fetch team members if team filter is specified
     let teamUserIds: Set<string> | null = null;
@@ -186,8 +258,8 @@ Deno.serve(async (req) => {
     
     // Filter deals by team if specified
     const filteredDeals = teamUserIds 
-      ? openDealsData?.filter(d => d.owner_id && teamUserIds.has(d.owner_id))
-      : openDealsData;
+      ? filteredByStage?.filter(d => d.owner_id && teamUserIds.has(d.owner_id))
+      : filteredByStage;
     
     console.log(`Processing ${filteredDeals?.length || 0} deals (after team filter)`);
     
@@ -234,16 +306,36 @@ Deno.serve(async (req) => {
       if (!existing) return; // Skip if user not in our active users list
       
       const dealAmount = parseFloat(String(deal.amount || 0));
+      const existingAmount = existing.maxDeal ? parseFloat(String(existing.maxDeal.amount || 0)) : 0;
       
-      if (!existing.maxDeal || dealAmount > parseFloat(String(existing.maxDeal.amount || 0))) {
+      // Update if this deal is larger, or if equal amount, use most recent
+      if (!existing.maxDeal || dealAmount > existingAmount) {
         ownerDeals.set(deal.owner_id, {
           maxDeal: {
             id: deal.hubspot_deal_id,
             name: deal.dealname,
             amount: dealAmount,
+            date: deal.closedate || deal.hs_lastmodifieddate,
           },
           user: existing.user,
         });
+      } else if (dealAmount === existingAmount) {
+        // Same amount - pick most recent
+        const existingDate = existing.maxDeal.date ? new Date(existing.maxDeal.date) : new Date(0);
+        const currentDate = deal.closedate ? new Date(deal.closedate) : 
+                           deal.hs_lastmodifieddate ? new Date(deal.hs_lastmodifieddate) : new Date(0);
+        
+        if (currentDate > existingDate) {
+          ownerDeals.set(deal.owner_id, {
+            maxDeal: {
+              id: deal.hubspot_deal_id,
+              name: deal.dealname,
+              amount: dealAmount,
+              date: deal.closedate || deal.hs_lastmodifieddate,
+            },
+            user: existing.user,
+          });
+        }
       }
     });
 
@@ -277,9 +369,6 @@ Deno.serve(async (req) => {
       last_updated: new Date().toISOString(),
     };
 
-    // Cache the result
-    cache.set(cacheKey, { data: result, timestamp: Date.now() });
-
     console.log(`Leaderboard generated with ${entries.length} entries`);
 
     return new Response(
@@ -289,8 +378,6 @@ Deno.serve(async (req) => {
         headers: {
           ...headers,
           'Content-Type': 'application/json',
-          'X-Cache': 'MISS',
-          'Cache-Control': 'private, max-age=300',
         },
       }
     );
