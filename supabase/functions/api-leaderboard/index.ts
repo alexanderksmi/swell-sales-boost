@@ -122,32 +122,27 @@ async function getStageCategories(tenantId: string): Promise<StageCategories> {
       console.log(`Stage ${stage.id} (${stage.label}):`, {
         isClosed,
         isWon,
+        probability: stage.metadata?.probability,
         metadata: stage.metadata
       });
       
-      // Metadata-based categorization first
-      if (isClosed && isWon) {
-        closedWonStageIds.add(stage.id);
-        console.log(`  → Closed Won`);
-      } else if (isClosed && !isWon) {
-        closedLostStageIds.add(stage.id);
-        console.log(`  → Closed Lost`);
-      } else if (!isClosed) {
-        openStageIds.add(stage.id);
-        console.log(`  → Open`);
-      } else {
-        // Fallback to label if metadata is ambiguous
-        const labelLower = (stage.label || '').toLowerCase();
-        if (labelLower.includes('won') || labelLower.includes('vunnet')) {
+      // Check probability to determine if won/lost
+      const probability = parseFloat(stage.metadata?.probability || '0');
+      
+      // Metadata-based categorization
+      if (isClosed) {
+        // Closed deals: check probability to determine won vs lost
+        if (probability >= 1.0) {
           closedWonStageIds.add(stage.id);
-          console.log(`  → Closed Won (from label)`);
-        } else if (labelLower.includes('lost') || labelLower.includes('tapt')) {
-          closedLostStageIds.add(stage.id);
-          console.log(`  → Closed Lost (from label)`);
+          console.log(`  → Closed Won (probability=${probability})`);
         } else {
-          openStageIds.add(stage.id);
-          console.log(`  → Open (fallback)`);
+          closedLostStageIds.add(stage.id);
+          console.log(`  → Closed Lost (probability=${probability})`);
         }
+      } else {
+        // Not closed = open
+        openStageIds.add(stage.id);
+        console.log(`  → Open (probability=${probability})`);
       }
     }
   }

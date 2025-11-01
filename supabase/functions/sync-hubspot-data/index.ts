@@ -666,6 +666,134 @@ Deno.serve(async (req) => {
       });
     }
     
+    // =============== SYNC ACTIVITIES ===============
+    console.log('\n=== Syncing Activities (Meetings, Calls, Emails) ===');
+    
+    // Helper function to fetch all activities of a given type
+    const fetchAllActivities = async (objectType: string, properties: string[]): Promise<any[]> => {
+      let allActivities: any[] = [];
+      let after: string | undefined;
+      
+      do {
+        try {
+          const url = new URL(`https://api.hubapi.com/crm/v3/objects/${objectType}`);
+          url.searchParams.set('limit', '100');
+          url.searchParams.set('properties', properties.join(','));
+          if (after) {
+            url.searchParams.set('after', after);
+          }
+          
+          const response = await fetchWithRetry(url.toString(), {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+            },
+          });
+          
+          if (!response.ok) {
+            const error = await response.text();
+            console.error(`Failed to fetch ${objectType}:`, error);
+            break;
+          }
+          
+          const data = await response.json();
+          allActivities = allActivities.concat(data.results || []);
+          after = data.paging?.next?.after;
+          
+          console.log(`Fetched ${data.results?.length || 0} ${objectType} (total: ${allActivities.length})`);
+        } catch (error) {
+          console.error(`Error fetching ${objectType}:`, error);
+          break;
+        }
+      } while (after);
+      
+      return allActivities;
+    };
+    
+    // Fetch all activities
+    const [meetings, calls, emails] = await Promise.all([
+      fetchAllActivities('meetings', ['hs_timestamp', 'hubspot_owner_id', 'hs_created_by_user_id']),
+      fetchAllActivities('calls', ['hs_timestamp', 'hubspot_owner_id', 'hs_created_by_user_id']),
+      fetchAllActivities('emails', ['hs_timestamp', 'hubspot_owner_id', 'hs_created_by_user_id']),
+    ]);
+    
+    console.log(`\nTotal activities fetched: meetings=${meetings.length}, calls=${calls.length}, emails=${emails.length}`);
+    
+    // Sync meetings
+    for (const meeting of meetings) {
+      if (!meeting.id) continue;
+      
+      const ownerId = meeting.properties.hubspot_owner_id 
+        ? (ownerIdMapping.get(meeting.properties.hubspot_owner_id) || 
+           hubspotUserIdMapping.get(meeting.properties.hubspot_owner_id) || 
+           null)
+        : null;
+      
+      const meetingData = {
+        tenant_id,
+        hubspot_meeting_id: meeting.id,
+        hs_timestamp: parseInt(meeting.properties.hs_timestamp || '0'),
+        hubspot_owner_id: meeting.properties.hubspot_owner_id || null,
+        hs_created_by_user_id: meeting.properties.hs_created_by_user_id || null,
+        owner_id: ownerId,
+      };
+      
+      await supabase
+        .from('meetings')
+        .upsert(meetingData, { onConflict: 'tenant_id,hubspot_meeting_id' });
+    }
+    
+    // Sync calls
+    for (const call of calls) {
+      if (!call.id) continue;
+      
+      const ownerId = call.properties.hubspot_owner_id 
+        ? (ownerIdMapping.get(call.properties.hubspot_owner_id) || 
+           hubspotUserIdMapping.get(call.properties.hubspot_owner_id) || 
+           null)
+        : null;
+      
+      const callData = {
+        tenant_id,
+        hubspot_call_id: call.id,
+        hs_timestamp: parseInt(call.properties.hs_timestamp || '0'),
+        hubspot_owner_id: call.properties.hubspot_owner_id || null,
+        hs_created_by_user_id: call.properties.hs_created_by_user_id || null,
+        owner_id: ownerId,
+      };
+      
+      await supabase
+        .from('calls')
+        .upsert(callData, { onConflict: 'tenant_id,hubspot_call_id' });
+    }
+    
+    // Sync emails
+    for (const email of emails) {
+      if (!email.id) continue;
+      
+      const ownerId = email.properties.hubspot_owner_id 
+        ? (ownerIdMapping.get(email.properties.hubspot_owner_id) || 
+           hubspotUserIdMapping.get(email.properties.hubspot_owner_id) || 
+           null)
+        : null;
+      
+      const emailData = {
+        tenant_id,
+        hubspot_email_id: email.id,
+        hs_timestamp: parseInt(email.properties.hs_timestamp || '0'),
+        hubspot_owner_id: email.properties.hubspot_owner_id || null,
+        hs_created_by_user_id: email.properties.hs_created_by_user_id || null,
+        owner_id: ownerId,
+      };
+      
+      await supabase
+        .from('emails')
+        .upsert(emailData, { onConflict: 'tenant_id,hubspot_email_id' });
+    }
+    
+    console.log('Activities synced successfully!');
+    
     const deals: HubSpotDeal[] = allDeals;
 
     // Store sync metadata

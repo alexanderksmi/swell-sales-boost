@@ -45,50 +45,7 @@ function getWeekBoundaries(weeksAgo: number = 0): { start: number; end: number }
   };
 }
 
-async function fetchActivities(
-  hubspotAccessToken: string,
-  objectType: string,
-  startTime: number,
-  endTime: number
-): Promise<any[]> {
-  const activities: any[] = [];
-  let after: string | undefined;
-  
-  do {
-    const url = new URL(`https://api.hubapi.com/crm/v3/objects/${objectType}`);
-    url.searchParams.set('limit', '100');
-    url.searchParams.set('properties', 'hs_timestamp,hubspot_owner_id,hs_created_by_user_id');
-    if (after) {
-      url.searchParams.set('after', after);
-    }
-    
-    const response = await fetch(url.toString(), {
-      headers: {
-        'Authorization': `Bearer ${hubspotAccessToken}`,
-        'Content-Type': 'application/json',
-      },
-    });
-    
-    if (!response.ok) {
-      console.error(`Failed to fetch ${objectType}:`, await response.text());
-      break;
-    }
-    
-    const data = await response.json();
-    
-    // Filter by timestamp
-    for (const item of data.results || []) {
-      const timestamp = parseInt(item.properties.hs_timestamp || '0');
-      if (timestamp >= startTime && timestamp < endTime) {
-        activities.push(item);
-      }
-    }
-    
-    after = data.paging?.next?.after;
-  } while (after);
-  
-  return activities;
-}
+// Removed - activities are now fetched from database
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -120,22 +77,6 @@ Deno.serve(async (req) => {
     }
 
     console.log(`[Activity Leaderboard] tenant_id=${tenantId}, team_id=${teamId}`);
-
-    // Get HubSpot token
-    const { data: tokenData, error: tokenError } = await supabase
-      .from('hubspot_tokens')
-      .select('access_token')
-      .eq('tenant_id', tenantId)
-      .single();
-
-    if (tokenError || !tokenData) {
-      return new Response(
-        JSON.stringify({ error: 'No HubSpot token found' }),
-        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    const hubspotAccessToken = tokenData.access_token;
 
     // Get active users (optionally filtered by team)
     let users;
@@ -188,21 +129,49 @@ Deno.serve(async (req) => {
     console.log(`[Activity Leaderboard] This week: ${new Date(thisWeek.start).toISOString()} - ${new Date(thisWeek.end).toISOString()}`);
     console.log(`[Activity Leaderboard] Last week: ${new Date(lastWeek.start).toISOString()} - ${new Date(lastWeek.end).toISOString()}`);
 
-    // Fetch activities for both weeks
-    const [meetingsThisWeek, callsThisWeek, emailsThisWeek] = await Promise.all([
-      fetchActivities(hubspotAccessToken, 'meetings', thisWeek.start, thisWeek.end),
-      fetchActivities(hubspotAccessToken, 'calls', thisWeek.start, thisWeek.end),
-      fetchActivities(hubspotAccessToken, 'emails', thisWeek.start, thisWeek.end),
+    // Fetch activities from database for both weeks
+    const [
+      { data: meetingsThisWeek },
+      { data: callsThisWeek },
+      { data: emailsThisWeek },
+      { data: meetingsLastWeek },
+      { data: callsLastWeek },
+      { data: emailsLastWeek }
+    ] = await Promise.all([
+      supabase.from('meetings')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .gte('hs_timestamp', thisWeek.start)
+        .lt('hs_timestamp', thisWeek.end),
+      supabase.from('calls')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .gte('hs_timestamp', thisWeek.start)
+        .lt('hs_timestamp', thisWeek.end),
+      supabase.from('emails')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .gte('hs_timestamp', thisWeek.start)
+        .lt('hs_timestamp', thisWeek.end),
+      supabase.from('meetings')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .gte('hs_timestamp', lastWeek.start)
+        .lt('hs_timestamp', lastWeek.end),
+      supabase.from('calls')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .gte('hs_timestamp', lastWeek.start)
+        .lt('hs_timestamp', lastWeek.end),
+      supabase.from('emails')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .gte('hs_timestamp', lastWeek.start)
+        .lt('hs_timestamp', lastWeek.end),
     ]);
 
-    const [meetingsLastWeek, callsLastWeek, emailsLastWeek] = await Promise.all([
-      fetchActivities(hubspotAccessToken, 'meetings', lastWeek.start, lastWeek.end),
-      fetchActivities(hubspotAccessToken, 'calls', lastWeek.start, lastWeek.end),
-      fetchActivities(hubspotAccessToken, 'emails', lastWeek.start, lastWeek.end),
-    ]);
-
-    console.log(`[Activity Leaderboard] Activities this week: meetings=${meetingsThisWeek.length}, calls=${callsThisWeek.length}, emails=${emailsThisWeek.length}`);
-    console.log(`[Activity Leaderboard] Activities last week: meetings=${meetingsLastWeek.length}, calls=${callsLastWeek.length}, emails=${emailsLastWeek.length}`);
+    console.log(`[Activity Leaderboard] Activities this week: meetings=${meetingsThisWeek?.length || 0}, calls=${callsThisWeek?.length || 0}, emails=${emailsThisWeek?.length || 0}`);
+    console.log(`[Activity Leaderboard] Activities last week: meetings=${meetingsLastWeek?.length || 0}, calls=${callsLastWeek?.length || 0}, emails=${emailsLastWeek?.length || 0}`);
 
     // Fetch open deals for follow-up rate calculation
     const { data: openDeals } = await supabase
@@ -224,34 +193,30 @@ Deno.serve(async (req) => {
     for (const user of users) {
       if (!user.hs_owner_id) continue;
 
-      const ownerId = user.hs_owner_id;
-
-      // Count activities this week
-      const meetingsCount = meetingsThisWeek.filter(m => 
-        m.properties.hubspot_owner_id === ownerId
+      // Count activities this week - filter by owner_id (user.id)
+      const meetingsCount = (meetingsThisWeek || []).filter(m => 
+        m.owner_id === user.id
       ).length;
       
-      const callsCount = callsThisWeek.filter(c => 
-        c.properties.hubspot_owner_id === ownerId
+      const callsCount = (callsThisWeek || []).filter(c => 
+        c.owner_id === user.id
       ).length;
       
-      const emailsCount = emailsThisWeek.filter(e => 
-        e.properties.hubspot_owner_id === ownerId || 
-        e.properties.hs_created_by_user_id === ownerId
+      const emailsCount = (emailsThisWeek || []).filter(e => 
+        e.owner_id === user.id
       ).length;
 
       // Count activities last week
-      const meetingsLastWeekCount = meetingsLastWeek.filter(m => 
-        m.properties.hubspot_owner_id === ownerId
+      const meetingsLastWeekCount = (meetingsLastWeek || []).filter(m => 
+        m.owner_id === user.id
       ).length;
       
-      const callsLastWeekCount = callsLastWeek.filter(c => 
-        c.properties.hubspot_owner_id === ownerId
+      const callsLastWeekCount = (callsLastWeek || []).filter(c => 
+        c.owner_id === user.id
       ).length;
       
-      const emailsLastWeekCount = emailsLastWeek.filter(e => 
-        e.properties.hubspot_owner_id === ownerId || 
-        e.properties.hs_created_by_user_id === ownerId
+      const emailsLastWeekCount = (emailsLastWeek || []).filter(e => 
+        e.owner_id === user.id
       ).length;
 
       const totalActivities = meetingsCount + callsCount + emailsCount;

@@ -35,6 +35,57 @@ export type Database = {
         }
         Relationships: []
       }
+      calls: {
+        Row: {
+          created_at: string
+          hs_created_by_user_id: string | null
+          hs_timestamp: number | null
+          hubspot_call_id: string
+          hubspot_owner_id: string | null
+          id: string
+          owner_id: string | null
+          tenant_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          hs_created_by_user_id?: string | null
+          hs_timestamp?: number | null
+          hubspot_call_id: string
+          hubspot_owner_id?: string | null
+          id?: string
+          owner_id?: string | null
+          tenant_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          hs_created_by_user_id?: string | null
+          hs_timestamp?: number | null
+          hubspot_call_id?: string
+          hubspot_owner_id?: string | null
+          id?: string
+          owner_id?: string | null
+          tenant_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "calls_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "calls_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       contacts: {
         Row: {
           created_at: string
@@ -204,6 +255,57 @@ export type Database = {
           },
         ]
       }
+      emails: {
+        Row: {
+          created_at: string
+          hs_created_by_user_id: string | null
+          hs_timestamp: number | null
+          hubspot_email_id: string
+          hubspot_owner_id: string | null
+          id: string
+          owner_id: string | null
+          tenant_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          hs_created_by_user_id?: string | null
+          hs_timestamp?: number | null
+          hubspot_email_id: string
+          hubspot_owner_id?: string | null
+          id?: string
+          owner_id?: string | null
+          tenant_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          hs_created_by_user_id?: string | null
+          hs_timestamp?: number | null
+          hubspot_email_id?: string
+          hubspot_owner_id?: string | null
+          id?: string
+          owner_id?: string | null
+          tenant_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "emails_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "emails_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hubspot_tokens: {
         Row: {
           access_token: string
@@ -279,6 +381,57 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "leaderboard_categories_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      meetings: {
+        Row: {
+          created_at: string
+          hs_created_by_user_id: string | null
+          hs_timestamp: number | null
+          hubspot_meeting_id: string
+          hubspot_owner_id: string | null
+          id: string
+          owner_id: string | null
+          tenant_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          hs_created_by_user_id?: string | null
+          hs_timestamp?: number | null
+          hubspot_meeting_id: string
+          hubspot_owner_id?: string | null
+          id?: string
+          owner_id?: string | null
+          tenant_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          hs_created_by_user_id?: string | null
+          hs_timestamp?: number | null
+          hubspot_meeting_id?: string
+          hubspot_owner_id?: string | null
+          id?: string
+          owner_id?: string | null
+          tenant_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "meetings_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "meetings_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
