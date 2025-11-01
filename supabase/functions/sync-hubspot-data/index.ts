@@ -464,30 +464,36 @@ Deno.serve(async (req) => {
     const allDeals = await fetchAllDeals();
     console.log(`Total deals fetched: ${allDeals.length}`);
     
-    // Create owner_id mapping from hs_owner_id
+    // Create owner_id mapping from hs_owner_id and hubspot_user_id
     const { data: allUsersForMapping } = await supabase
       .from('users')
-      .select('id, hs_owner_id')
+      .select('id, hs_owner_id, hubspot_user_id')
       .eq('tenant_id', tenant_id);
     
     const ownerIdMapping = new Map<string, string>(); // hs_owner_id -> user UUID
+    const hubspotUserIdMapping = new Map<string, string>(); // hubspot_user_id -> user UUID
     allUsersForMapping?.forEach(u => {
       if (u.hs_owner_id) ownerIdMapping.set(u.hs_owner_id, u.id);
+      if (u.hubspot_user_id) hubspotUserIdMapping.set(u.hubspot_user_id, u.id);
     });
     
     // Sync deals to database and track stage changes
     let stageChangesCount = 0;
     let openDealsCount = 0;
     let closedDealsCount = 0;
+    const dealStageStats = new Map<string, { open: number; closed: number }>();
+    const unmappedOwners = new Set<string>();
     
     console.log('\n=== Deal Status Summary ===');
     
     for (const deal of allDeals) {
       if (!deal.id) continue;
       
-      // Find owner_id
+      // Find owner_id - check both hs_owner_id and hubspot_user_id mappings
       const ownerId = deal.properties.hubspot_owner_id 
-        ? ownerIdMapping.get(deal.properties.hubspot_owner_id) || null
+        ? (ownerIdMapping.get(deal.properties.hubspot_owner_id) || 
+           hubspotUserIdMapping.get(deal.properties.hubspot_owner_id) || 
+           null)
         : null;
       
       // Check if deal exists
@@ -498,7 +504,13 @@ Deno.serve(async (req) => {
         .eq('hubspot_deal_id', deal.id)
         .maybeSingle();
       
-      const isClosed = deal.properties.hs_is_closed === 'true';
+      // Check if deal is closed - check both hs_is_closed field and dealstage
+      const dealstage = deal.properties.dealstage?.toLowerCase() || '';
+      const isClosed = 
+        deal.properties.hs_is_closed === 'true' || 
+        dealstage.includes('closedwon') ||
+        dealstage.includes('closedlost') ||
+        dealstage.includes('closed');
       
       // Track open vs closed deals
       if (isClosed) {
@@ -507,9 +519,26 @@ Deno.serve(async (req) => {
         openDealsCount++;
       }
       
+      // Track deal stage statistics
+      const stage = deal.properties.dealstage || 'unknown';
+      if (!dealStageStats.has(stage)) {
+        dealStageStats.set(stage, { open: 0, closed: 0 });
+      }
+      const stats = dealStageStats.get(stage)!;
+      if (isClosed) {
+        stats.closed++;
+      } else {
+        stats.open++;
+      }
+      
+      // Track unmapped owners
+      if (deal.properties.hubspot_owner_id && !ownerId) {
+        unmappedOwners.add(deal.properties.hubspot_owner_id);
+      }
+      
       // Log first few deals for debugging
-      if (allDeals.indexOf(deal) < 5) {
-        console.log(`Deal: "${deal.properties.dealname}" | Stage: ${deal.properties.dealstage} | Closed: ${isClosed} | Owner: ${deal.properties.hubspot_owner_id || 'none'}`);
+      if (allDeals.indexOf(deal) < 10) {
+        console.log(`Deal: "${deal.properties.dealname}" | Stage: ${stage} | Closed: ${isClosed} | Owner: ${deal.properties.hubspot_owner_id || 'none'} -> ${ownerId || 'UNMAPPED'}`);
       }
       
       if (existingDeal) {
@@ -576,6 +605,18 @@ Deno.serve(async (req) => {
     console.log(`Open deals: ${openDealsCount}`);
     console.log(`Closed deals: ${closedDealsCount}`);
     console.log(`Stage changes tracked: ${stageChangesCount}`);
+    
+    console.log(`\n=== Deal Stage Breakdown ===`);
+    dealStageStats.forEach((stats, stage) => {
+      console.log(`${stage}: ${stats.open} open, ${stats.closed} closed`);
+    });
+    
+    if (unmappedOwners.size > 0) {
+      console.log(`\n=== Unmapped Owner IDs (${unmappedOwners.size}) ===`);
+      unmappedOwners.forEach(ownerId => {
+        console.log(`- ${ownerId}`);
+      });
+    }
     
     const deals: HubSpotDeal[] = allDeals;
 
