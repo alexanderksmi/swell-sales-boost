@@ -104,27 +104,59 @@ async function getStageCategories(tenantId: string): Promise<StageCategories> {
   const closedWonStageIds = new Set<string>();
   const closedLostStageIds = new Set<string>();
 
-  // Process all pipelines and their stages - simplified logic based on stage labels
+  // Helper to convert to boolean
+  const toBool = (val: any): boolean => {
+    if (typeof val === 'boolean') return val;
+    if (typeof val === 'string') return val.toLowerCase() === 'true';
+    return false;
+  };
+
+  // Process all pipelines and their stages - metadata-based with fallback to label
   for (const pipeline of pipelinesData.results || []) {
     console.log(`Processing pipeline: ${pipeline.label} (${pipeline.id})`);
     
     for (const stage of pipeline.stages || []) {
-      const labelLower = (stage.label || '').toLowerCase();
+      const isClosed = toBool(stage.metadata?.isClosed);
+      const isWon = toBool(stage.metadata?.isWon);
       
-      // Categorize purely based on stage label (case-insensitive)
-      if (labelLower.includes('closed won')) {
+      console.log(`Stage ${stage.id} (${stage.label}):`, {
+        isClosed,
+        isWon,
+        metadata: stage.metadata
+      });
+      
+      // Metadata-based categorization first
+      if (isClosed && isWon) {
         closedWonStageIds.add(stage.id);
-        console.log(`  Stage ${stage.id} (${stage.label}): Closed Won`);
-      } else if (labelLower.includes('closed lost')) {
+        console.log(`  → Closed Won`);
+      } else if (isClosed && !isWon) {
         closedLostStageIds.add(stage.id);
-        console.log(`  Stage ${stage.id} (${stage.label}): Closed Lost`);
-      } else {
-        // Everything else is open
+        console.log(`  → Closed Lost`);
+      } else if (!isClosed) {
         openStageIds.add(stage.id);
-        console.log(`  Stage ${stage.id} (${stage.label}): Open`);
+        console.log(`  → Open`);
+      } else {
+        // Fallback to label if metadata is ambiguous
+        const labelLower = (stage.label || '').toLowerCase();
+        if (labelLower.includes('won') || labelLower.includes('vunnet')) {
+          closedWonStageIds.add(stage.id);
+          console.log(`  → Closed Won (from label)`);
+        } else if (labelLower.includes('lost') || labelLower.includes('tapt')) {
+          closedLostStageIds.add(stage.id);
+          console.log(`  → Closed Lost (from label)`);
+        } else {
+          openStageIds.add(stage.id);
+          console.log(`  → Open (fallback)`);
+        }
       }
     }
   }
+  
+  console.log('Stage categories:', {
+    open: Array.from(openStageIds),
+    closedWon: Array.from(closedWonStageIds),
+    closedLost: Array.from(closedLostStageIds)
+  });
 
   const categories: StageCategories = {
     openStageIds,
@@ -210,7 +242,15 @@ Deno.serve(async (req) => {
       throw new Error('Failed to fetch deals from database');
     }
     
-    console.log(`Fetched ${allDealsData?.length || 0} deals from database`);
+    console.log(`Total deals fetched: ${allDealsData?.length || 0}`);
+    console.log('Deal filtering - sample stages:', {
+      totalDeals: allDealsData?.length || 0,
+      sampleDealStages: allDealsData?.slice(0, 5).map(d => ({ 
+        name: d.dealname, 
+        stage: d.dealstage,
+        amount: d.amount 
+      }))
+    });
 
     // Filter deals based on stage categories
     const twelveMonthsAgo = new Date();
@@ -240,7 +280,12 @@ Deno.serve(async (req) => {
       return false;
     });
 
-    console.log(`After stage filtering: ${filteredByStage?.length || 0} deals (open + ${include_closed ? 'won' : '0'})`);
+    console.log('After stage filtering:', {
+      filteredCount: filteredByStage?.length || 0,
+      openDeals: filteredByStage?.filter(d => stageCategories.openStageIds.has(d.dealstage)).length || 0,
+      closedWonDeals: filteredByStage?.filter(d => stageCategories.closedWonStageIds.has(d.dealstage)).length || 0,
+      closedLostDeals: filteredByStage?.filter(d => stageCategories.closedLostStageIds.has(d.dealstage)).length || 0
+    });
     
     const openDealsData = filteredByStage;
     

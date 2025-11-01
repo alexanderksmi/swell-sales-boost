@@ -1,5 +1,8 @@
 project_id = "ffbdcvvxiklzgfwrhbta"
 
+[functions.api-activity-leaderboard]
+verify_jwt = false
+
 [functions.hubspot-auth]
 verify_jwt = false
 

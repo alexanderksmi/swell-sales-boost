@@ -1,24 +1,8 @@
 // Activity-based leaderboard: meetings, calls, emails, follow-ups
-const allowedOrigins = [
-  'http://localhost:8080',
-  'http://localhost:8081',
-  'https://ffbdcvvxiklzgfwrhbta.supabase.co',
-];
-
-function getCorsHeaders(origin: string | null) {
-  if (origin && allowedOrigins.includes(origin)) {
-    return {
-      'Access-Control-Allow-Origin': origin,
-      'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    };
-  }
-  return {
-    'Access-Control-Allow-Origin': allowedOrigins[0],
-    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  };
-}
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
@@ -107,11 +91,8 @@ async function fetchActivities(
 }
 
 Deno.serve(async (req) => {
-  const origin = req.headers.get('origin');
-  const headers = getCorsHeaders(origin);
-  
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers });
+    return new Response(null, { headers: corsHeaders });
   }
 
   try {
@@ -134,7 +115,7 @@ Deno.serve(async (req) => {
     if (!tenantId) {
       return new Response(
         JSON.stringify({ error: 'tenant_id is required' }),
-        { status: 400, headers }
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -150,7 +131,7 @@ Deno.serve(async (req) => {
     if (tokenError || !tokenData) {
       return new Response(
         JSON.stringify({ error: 'No HubSpot token found' }),
-        { status: 404, headers }
+        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -194,7 +175,7 @@ Deno.serve(async (req) => {
     if (usersError || !users || users.length === 0) {
       return new Response(
         JSON.stringify({ error: 'No users found' }),
-        { status: 404, headers }
+        { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
@@ -317,7 +298,7 @@ Deno.serve(async (req) => {
         full_list: metrics,
         top_3: metrics.slice(0, 3),
       }),
-      { status: 200, headers }
+      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
   } catch (error) {
@@ -325,7 +306,7 @@ Deno.serve(async (req) => {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return new Response(
       JSON.stringify({ error: errorMessage }),
-      { status: 500, headers }
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
 });
