@@ -74,7 +74,6 @@ if (!envCheck.valid) {
 const SCOPES = [
   'crm.objects.contacts.read',
   'crm.objects.deals.read',
-  'crm.objects.owners.read',
   'crm.objects.users.read',
   'oauth',
 ].join(' ');
